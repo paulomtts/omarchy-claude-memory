@@ -96,6 +96,21 @@ o.bind("CTRL + SUPER + M", "Toggle Claude Memory", "omarchy-shell shell toggle p
 manage-mode deletion). The `claude` CLI on `PATH`, logged in, is required
 only for the Consolidate feature — everything else works without it.
 
+## Tests
+
+```bash
+./run-tests.sh
+```
+
+Two suites: `pytest` over the Python scripts (needs `pytest`), and Qt's
+`qmltestrunner` over `logic.js` (needs `qt6-declarative`, which the shell
+already pulls in). They cover the rules the plugin can't afford to get
+wrong — slug decoding, filename safety, `MEMORY.md` parsing and rewriting,
+and the consolidation plan's accounting invariant, which is enforced twice
+over: once in `logic.js` before a plan is offered for review, once in
+`consolidate_plan.py` before anything is written. The panel's bindings,
+layout and `Process` wiring aren't tested; there are no decisions in them.
+
 ## License
 
 MIT — see [LICENSE](LICENSE).

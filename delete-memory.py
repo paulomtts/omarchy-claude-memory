@@ -14,93 +14,86 @@ directory itself, and never anything outside one):
       them were actually deleted -- otherwise the index would keep dead
       links to notes that no longer exist.
 
-Every path is validated before anything is removed: it must exist, the
-memory dir's basename must literally be "memory", and an "entries" filename
-must be a plain basename (no "/", no "..") so it can't escape the directory
-it's being deleted from. One result line per item goes to stdout as
-"ok\\t<item>" or "error\\t<item>\\t<message>", so the caller can report
-partial failures instead of an opaque nonzero exit.
+One result line per item goes to stdout as "ok\\t<item>" or
+"error\\t<item>\\t<message>", so the caller can report partial failures
+instead of an opaque nonzero exit.
 """
 import os
-import re
 import shutil
 import sys
 
-INDEX_LINE_RE = re.compile(r"^-\s*\[([^\]]+)\]\(([^)]+)\)\s*(.*)$")
+from claude_memory import drop_index_lines, is_memory_dir, is_safe_filename, read_index, write_index
 
 
-def normalize_href(href):
-    """A leading "./" is a no-op for actually opening the file, but it
-    breaks a plain string-equality match against a bare filename (e.g. one
-    passed in on argv). Every index-line href gets normalized through here
-    so it agrees with Panel.qml's own parseIndex() and consolidate-apply.py's
-    equivalent helper."""
-    href = href.strip()
-    return href[2:] if href.startswith("./") else href
+def ok(item):
+    print("ok\t" + item)
 
 
-def is_memory_dir(path):
-    return os.path.isdir(path) and os.path.basename(os.path.normpath(path)) == "memory"
+def failed(item, message):
+    print("error\t" + item + "\t" + message)
 
 
 def delete_projects(memory_dirs):
     for path in memory_dirs:
         if not is_memory_dir(path):
-            print("error\t" + path + "\tnot a memory directory")
+            failed(path, "not a memory directory")
             continue
         try:
             shutil.rmtree(path)
-            print("ok\t" + path)
+            ok(path)
         except OSError as e:
-            print("error\t" + path + "\t" + str(e))
+            failed(path, str(e))
 
 
 def delete_entries(memory_dir, filenames):
     if not is_memory_dir(memory_dir):
         for name in filenames:
-            print("error\t" + name + "\tnot a memory directory: " + memory_dir)
+            failed(name, "not a memory directory: " + memory_dir)
         return
 
     removed = set()
     for name in filenames:
-        if name == "" or "/" in name or name in (".", ".."):
-            print("error\t" + name + "\tinvalid filename")
-            continue
-        target = os.path.join(memory_dir, name)
-        if os.path.dirname(os.path.abspath(target)) != os.path.abspath(memory_dir):
-            print("error\t" + name + "\tinvalid filename")
-            continue
-        if not os.path.isfile(target):
-            print("error\t" + name + "\tnot found")
-            continue
-        try:
-            os.remove(target)
+        error = delete_entry(memory_dir, name)
+        if error:
+            failed(name, error)
+        else:
             removed.add(name)
-            print("ok\t" + name)
-        except OSError as e:
-            print("error\t" + name + "\t" + str(e))
+            ok(name)
 
-    if not removed:
-        return
+    if removed:
+        prune_index(memory_dir, removed)
 
-    index_path = os.path.join(memory_dir, "MEMORY.md")
-    if not os.path.isfile(index_path):
+
+def delete_entry(memory_dir, name):
+    """Removes one note file. Returns an error message, or None on success."""
+    if not is_safe_filename(name):
+        return "invalid filename"
+    target = os.path.join(memory_dir, name)
+    # Belt and braces: is_safe_filename() already rules out anything that
+    # could escape, but this is the last check before an unlink.
+    if os.path.dirname(os.path.abspath(target)) != os.path.abspath(memory_dir):
+        return "invalid filename"
+    if not os.path.isfile(target):
+        return "not found"
+    try:
+        os.remove(target)
+    except OSError as e:
+        return str(e)
+    return None
+
+
+def prune_index(memory_dir, removed):
+    """Drop the index lines pointing at notes that are now gone. A project
+    with no MEMORY.md has nothing to prune."""
+    index = read_index(memory_dir)
+    if index == "":
         return
-    with open(index_path, "r", encoding="utf-8") as f:
-        lines = f.read().split("\n")
-    kept = []
-    for line in lines:
-        m = INDEX_LINE_RE.match(line)
-        if m and normalize_href(m.group(2)) in removed:
-            continue
-        kept.append(line)
-    with open(index_path, "w", encoding="utf-8") as f:
-        f.write("\n".join(kept))
+    write_index(memory_dir, drop_index_lines(index, removed))
 
 
 def main():
     if len(sys.argv) < 3:
-        print("error\t\tusage: delete-memory.py project|entries ...")
+        failed("", "usage: delete-memory.py project|entries ...")
         sys.exit(2)
     mode = sys.argv[1]
     if mode == "project":
@@ -108,7 +101,7 @@ def main():
     elif mode == "entries":
         delete_entries(sys.argv[2], sys.argv[3:])
     else:
-        print("error\t\tunknown mode: " + mode)
+        failed("", "unknown mode: " + mode)
         sys.exit(2)
 
 

@@ -22,6 +22,8 @@ import json
 import os
 import sys
 
+from claude_memory import is_memory_dir
+
 SCHEMA = {
     "type": "object",
     "properties": {
@@ -113,10 +115,6 @@ filename), give it a short snake_case name ending in .md, in the style of
 the existing note filenames (e.g. feedback_topic.md). Do not modify any
 files -- report your plan only.
 Return your plan as JSON matching the provided schema."""
-
-
-def is_memory_dir(path):
-    return os.path.isdir(path) and os.path.basename(os.path.normpath(path)) == "memory"
 
 
 def error_result(message):

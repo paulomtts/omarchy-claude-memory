@@ -5,6 +5,7 @@ import Quickshell
 import Quickshell.Io
 import qs.Commons
 import qs.Ui
+import "logic.js" as Logic
 
 // Browses Claude Code's persistent memory (~/.claude/projects/<slug>/memory/),
 // not the conversation context: pick a project, read its MEMORY.md index,
@@ -180,14 +181,14 @@ Panel {
   // yet or the file couldn't be read", not "empty file".
   function oldBodyFor(file) {
     var raw = root.consolidateOldContent[file]
-    return raw === undefined ? "" : root.parseEntry(raw).body
+    return raw === undefined ? "" : Logic.parseEntry(raw).body
   }
 
   function oldEntriesFor(sources) {
     return (sources || []).map(function(f) {
       var raw = root.consolidateOldContent[f]
       var available = raw !== undefined
-      var parsed = available ? root.parseEntry(raw) : null
+      var parsed = available ? Logic.parseEntry(raw) : null
       return {
         file: f,
         title: parsed && parsed.name !== "" ? parsed.name : f,
@@ -245,162 +246,22 @@ Panel {
     consolidateProc.running = true
   }
 
-  function toolProgressText(name, input) {
-    var target = ""
-    if (input && input.file_path) target = String(input.file_path)
-    else if (input && input.pattern) target = String(input.pattern)
-    else if (input && input.path) target = String(input.path)
-    if (name === "Read") return "Reading " + target.split("/").pop() + "…"
-    if (name === "Grep") return "Searching " + target + "…"
-    if (name === "Glob") return "Listing " + target + "…"
-    return ""
-  }
-
+  // Every judgement about the line -- is it noise, progress, a failure, a
+  // plan safe enough to offer for review -- belongs to
+  // Logic.interpretStreamLine(); this only maps the answer onto state.
   function handleConsolidateLine(line) {
-    var text = String(line || "").trim()
-    if (text === "") return
-    var evt
-    try { evt = JSON.parse(text) } catch (e) { return }
-    if (!evt || typeof evt !== "object") return
-
-    if (evt.type === "assistant" && evt.message && Array.isArray(evt.message.content)) {
-      var blocks = evt.message.content
-      for (var i = 0; i < blocks.length; i++) {
-        var block = blocks[i]
-        if (block && block.type === "tool_use")
-          root.consolidateProgress = root.toolProgressText(block.name, block.input)
-      }
-      return
-    }
-
-    if (evt.type === "result") {
-      if (evt.is_error) {
-        root.consolidateError = String(evt.result || "Claude Code exited with an error.")
-        root.consolidateState = "error"
-        return
-      }
-      var plan
-      try { plan = JSON.parse(String(evt.result || "")) } catch (e) {
-        root.consolidateError = "Claude's response wasn't valid JSON."
-        root.consolidateState = "error"
-        return
-      }
-      plan = root.sanitizeConsolidatePlan(plan)
-      var invalid = root.validateConsolidatePlan(plan)
-      if (invalid !== "") {
-        root.consolidateError = invalid
-        root.consolidateState = "error"
-        return
-      }
-      root.consolidatePlan = plan
+    var event = Logic.interpretStreamLine(line, root.indexEntries.map(function(e) { return e.file }))
+    if (event.kind === "progress") {
+      root.consolidateProgress = event.text
+    } else if (event.kind === "error") {
+      root.consolidateError = event.message
+      root.consolidateState = "error"
+    } else if (event.kind === "plan") {
+      root.consolidatePlan = event.plan
       root.consolidateState = "review"
-      root.fetchOldContent(plan)
+      root.fetchOldContent(event.plan)
       root.focusForView()
     }
-  }
-
-  // MEMORY.md is the index itself, not one of the notes it links to, but
-  // the model sometimes lists it in unchanged/sources/discard anyway even
-  // though the instructions only ask it to account for linked note files.
-  // A mention of it is harmless noise -- strip it wherever it appears
-  // before validation or storage, rather than let it either block an
-  // otherwise-complete plan (accounted-for-but-not-in-the-index) or, worse,
-  // end up in some entry's sources where the apply side would delete it as
-  // "superseded". Mirrors consolidate-apply.py's own sanitize_plan(), and
-  // runs before that script ever sees the plan too, since
-  // performConsolidateApply() sends whatever's in root.consolidatePlan.
-  function sanitizeConsolidatePlan(plan) {
-    if (!plan || typeof plan !== "object") return plan
-    var INDEX_FILE = "MEMORY.md"
-    if (Array.isArray(plan.unchanged))
-      plan.unchanged = plan.unchanged.filter(function(f) { return f !== INDEX_FILE })
-    if (Array.isArray(plan.entries))
-      plan.entries.forEach(function(entry) {
-        if (entry && Array.isArray(entry.sources))
-          entry.sources = entry.sources.filter(function(s) { return s !== INDEX_FILE })
-      })
-    if (Array.isArray(plan.discard))
-      plan.discard = plan.discard.filter(function(item) { return !item || item.file !== INDEX_FILE })
-    return plan
-  }
-
-  // Re-checks the same invariants consolidate-apply.py enforces before
-  // writing anything, in the same order: no two entries targeting the same
-  // file, every currently-indexed file accounted for in exactly one of
-  // unchanged / some entry's sources / discard, and no entry silently
-  // overwriting an existing file it doesn't list among its own sources.
-  // Item accessors are defensive (entry/item may not be an object -- e.g.
-  // stray `null` in a malformed array) so a garbled plan produces a clean
-  // error string here instead of an uncaught throw that would strand
-  // consolidateState at "running" forever. Returns "" if the plan is safe
-  // to show for review, or an error string.
-  function safeName(n) {
-    return n !== "" && n.indexOf("/") < 0 && n !== "." && n !== ".."
-  }
-
-  function validateConsolidatePlan(plan) {
-    if (!plan || typeof plan !== "object") return "Claude's response wasn't a JSON object."
-    var unchanged = Array.isArray(plan.unchanged) ? plan.unchanged : null
-    var entries = Array.isArray(plan.entries) ? plan.entries : null
-    var discard = Array.isArray(plan.discard) ? plan.discard : null
-    if (!unchanged || !entries || !discard) return "Claude's response was missing unchanged/entries/discard."
-
-    function entryFile(entry) { return (entry && typeof entry === "object" && entry.file) ? String(entry.file) : "" }
-    function entrySources(entry) { return (entry && typeof entry === "object" && Array.isArray(entry.sources)) ? entry.sources : [] }
-    function discardFile(item) { return (item && typeof item === "object" && item.file) ? String(item.file) : "" }
-
-    for (var u = 0; u < unchanged.length; u++)
-      if (!root.safeName(String(unchanged[u]))) return "Unsafe filename in unchanged: " + unchanged[u]
-    for (var e = 0; e < entries.length; e++) {
-      var ef = entryFile(entries[e])
-      if (!root.safeName(ef)) return "Unsafe filename in entries: " + ef
-      var esrcs = entrySources(entries[e])
-      for (var s = 0; s < esrcs.length; s++)
-        if (!root.safeName(String(esrcs[s]))) return "Unsafe source filename: " + esrcs[s]
-    }
-    for (var d = 0; d < discard.length; d++) {
-      var df = discardFile(discard[d])
-      if (!root.safeName(df)) return "Unsafe filename in discard: " + df
-    }
-
-    var seenTargets = {}
-    var dupTarget = ""
-    entries.map(entryFile).forEach(function(f) {
-      if (dupTarget !== "" || f === "") return
-      if (seenTargets[f]) { dupTarget = f; return }
-      seenTargets[f] = true
-    })
-    if (dupTarget !== "") return "Two entries target the same file: " + dupTarget
-
-    var accounted = {}
-    var conflict = ""
-    function account(name, bucket) {
-      if (conflict !== "") return
-      if (accounted[name]) { conflict = name + " is listed in both " + accounted[name] + " and " + bucket; return }
-      accounted[name] = bucket
-    }
-    unchanged.forEach(function(name) { account(name, "unchanged") })
-    entries.forEach(function(entry) {
-      entrySources(entry).forEach(function(source) { account(source, "entries[].sources") })
-    })
-    discard.forEach(function(item) { account(discardFile(item), "discard") })
-    if (conflict !== "") return conflict
-
-    var current = root.indexEntries.map(function(e) { return e.file })
-    var missing = current.filter(function(f) { return !accounted[f] })
-    var extra = Object.keys(accounted).filter(function(f) { return current.indexOf(f) < 0 })
-    if (missing.length > 0) return "Plan doesn't account for: " + missing.join(", ")
-    if (extra.length > 0) return "Plan references files not in the current index: " + extra.join(", ")
-
-    var selfOverwrite = ""
-    entries.forEach(function(entry) {
-      if (selfOverwrite !== "") return
-      var target = entryFile(entry)
-      if (current.indexOf(target) >= 0 && entrySources(entry).indexOf(target) < 0) selfOverwrite = target
-    })
-    if (selfOverwrite !== "") return "Entry targets existing file " + selfOverwrite + " without listing it as a source."
-
-    return ""
   }
 
   function cancelConsolidate() {
@@ -559,46 +420,6 @@ Panel {
     resetSearch()
     if (panelFlick) panelFlick.contentY = 0
     focusForView()
-  }
-
-  function parseIndex(content) {
-    var lines = String(content || "").split("\n")
-    var out = []
-    for (var i = 0; i < lines.length; i++) {
-      var m = lines[i].match(/^-\s*\[([^\]]+)\]\(([^)]+)\)\s*(.*)$/)
-      if (!m) continue
-      out.push({
-        title: m[1].trim(),
-        // A "./" prefix is a no-op for actually opening the file (joined
-        // onto selectedDir it still resolves), but it breaks every place
-        // that compares filenames by exact string equality -- notably
-        // Claude's own consolidation plans, which reference files by the
-        // bare name Read/Glob report, never "./name". Normalize once here
-        // so every consumer of indexEntries sees the same bare form
-        // consolidate-apply.py's INDEX_LINE_RE-based parsing already
-        // assumes.
-        file: m[2].trim().replace(/^\.\//, ""),
-        hook: String(m[3] || "").replace(/^[—-]\s*/, "").trim()
-      })
-    }
-    return out
-  }
-
-  function parseEntry(content) {
-    var text = String(content || "")
-    var m = text.match(/^---\n([\s\S]*?)\n---\n?([\s\S]*)$/)
-    var name = "", description = "", type = "", body = text
-    if (m) {
-      var front = m[1]
-      body = m[2]
-      var nameM = front.match(/^name:\s*(.*)$/m)
-      var descM = front.match(/^description:\s*(.*)$/m)
-      var typeM = front.match(/^\s*type:\s*(.*)$/m)
-      if (nameM) name = nameM[1].trim()
-      if (descM) description = descM[1].trim()
-      if (typeM) type = typeM[1].trim()
-    }
-    return { name: name, description: description, type: type, body: body.trim() }
   }
 
   // A closed panel isn't destroyed -- its Process items (including
@@ -801,7 +622,7 @@ Panel {
     watchChanges: true
     printErrors: false
     onFileChanged: reload()
-    onLoaded: root.indexEntries = root.parseIndex(text())
+    onLoaded: root.indexEntries = Logic.parseIndex(text())
     onLoadFailed: {
       root.indexEntries = []
       root.loadError = "Could not read MEMORY.md for this project."
@@ -815,7 +636,7 @@ Panel {
     printErrors: false
     onFileChanged: reload()
     onLoaded: {
-      var parsed = root.parseEntry(text())
+      var parsed = Logic.parseEntry(text())
       root.entryType = parsed.type
       root.entryDescription = parsed.description
       root.entryBody = parsed.body
