@@ -698,7 +698,13 @@ Panel {
           panelFlick.contentY = root.clamp(panelFlick.contentY + dy * Style.space(56), 0,
                                             Math.max(0, panelFlick.contentHeight - panelFlick.height))
       }
-      onCloseRequested: root.goBack()
+      onCloseRequested: {
+        if (root.viewMode === "index" && root.consolidateState === "confirming") root.cancelConsolidateConfirm()
+        else if (root.viewMode === "index" && root.consolidateState === "review") root.cancelConsolidate()
+        else if (root.viewMode === "index" && root.consolidateState === "error") root.dismissConsolidateError()
+        else if (root.consolidateActive) { /* running/applying: nothing to cancel onto yet */ }
+        else root.goBack()
+      }
       onTabRequested: function(direction) { root.switchPanel(direction) }
 
       Flickable {
@@ -723,7 +729,7 @@ Panel {
             spacing: Style.spacing.md
 
             Text {
-              visible: root.viewMode !== "projects"
+              visible: root.viewMode !== "projects" && !root.consolidateActive
               text: "‹ Back"
               color: root.foreground
               font.family: root.fontFamily
@@ -744,7 +750,18 @@ Panel {
             }
 
             Button {
-              visible: root.viewMode !== "entry"
+              visible: root.viewMode === "index" && root.consolidateState === "idle"
+              text: "✨ Consolidate"
+              bordered: true
+              foreground: root.foreground
+              fontFamily: root.fontFamily
+              fontSize: Style.font.bodySmall
+              verticalPadding: Style.spacing.controlPaddingY
+              onClicked: root.startConsolidate()
+            }
+
+            Button {
+              visible: root.viewMode !== "entry" && !root.consolidateActive
               text: root.manageMode ? "Done" : "Manage"
               selected: root.manageMode
               bordered: true
@@ -759,7 +776,7 @@ Panel {
           // ---------- Search ----------
           TextField {
             id: searchField
-            visible: root.viewMode !== "entry"
+            visible: root.viewMode !== "entry" && !root.consolidateActive
             width: parent.width
             foreground: root.foreground
             placeholderText: root.viewMode === "projects" ? "Search projects…" : "Search memory…"
@@ -963,7 +980,7 @@ Panel {
 
           // ---------- Memory index ----------
           Column {
-            visible: root.viewMode === "index"
+            visible: root.viewMode === "index" && !root.consolidateActive
             width: parent.width
             spacing: Style.space(6)
 
@@ -1003,6 +1020,281 @@ Panel {
                 onActivated: root.manageMode ? root.toggleSelected(modelData.file)
                   : root.selectEntry(modelData)
               }
+            }
+          }
+
+          // ---------- Consolidate: confirm ----------
+          Column {
+            visible: root.viewMode === "index" && root.consolidateState === "confirming"
+            width: parent.width
+            spacing: Style.space(10)
+
+            Text {
+              width: parent.width
+              text: "Ask Claude to review this project's memory and propose a consolidated set? This uses your Claude subscription and may take a minute or two."
+              color: root.foreground
+              font.family: root.fontFamily
+              font.pixelSize: Style.font.bodySmall
+              wrapMode: Text.WordWrap
+            }
+
+            Row {
+              spacing: Style.spacing.md
+
+              Button {
+                text: "Cancel"
+                bordered: true
+                foreground: root.foreground
+                fontFamily: root.fontFamily
+                fontSize: Style.font.bodySmall
+                verticalPadding: Style.spacing.controlPaddingY
+                onClicked: root.cancelConsolidateConfirm()
+              }
+
+              Button {
+                text: "Continue"
+                bordered: true
+                foreground: root.foreground
+                fontFamily: root.fontFamily
+                fontSize: Style.font.bodySmall
+                verticalPadding: Style.spacing.controlPaddingY
+                onClicked: root.runConsolidate()
+              }
+            }
+          }
+
+          // ---------- Consolidate: running ----------
+          Column {
+            visible: root.viewMode === "index" && root.consolidateState === "running"
+            width: parent.width
+            spacing: Style.space(10)
+
+            Text {
+              width: parent.width
+              text: root.consolidateProgress !== "" ? root.consolidateProgress : "Starting…"
+              color: root.foreground
+              font.family: root.fontFamily
+              font.pixelSize: Style.font.bodySmall
+              wrapMode: Text.WordWrap
+            }
+
+            Text {
+              text: root.consolidateElapsedText
+              color: root.dim
+              font.family: root.fontFamily
+              font.pixelSize: Style.font.caption
+            }
+          }
+
+          // ---------- Consolidate: review ----------
+          Column {
+            visible: root.viewMode === "index" && root.consolidateState === "review"
+            width: parent.width
+            spacing: Style.space(12)
+
+            Text {
+              width: parent.width
+              text: root.consolidatePlan ? root.consolidatePlan.summary : ""
+              color: root.foreground
+              font.family: root.fontFamily
+              font.pixelSize: Style.font.bodySmall
+              wrapMode: Text.WordWrap
+            }
+
+            PanelSeparator { foreground: root.foreground }
+
+            PanelSectionHeader {
+              text: "PROPOSED (" + (root.consolidatePlan ? root.consolidatePlan.entries.length : 0) + ")"
+              foreground: root.foreground
+              fontFamily: root.fontFamily
+            }
+
+            Repeater {
+              model: root.consolidatePlan ? root.consolidatePlan.entries : []
+
+              Column {
+                required property var modelData
+                width: parent.width
+                spacing: Style.space(4)
+
+                Text {
+                  width: parent.width
+                  text: modelData.title
+                  color: root.foreground
+                  font.family: root.fontFamily
+                  font.pixelSize: Style.font.body
+                  font.bold: true
+                  wrapMode: Text.WordWrap
+                }
+                Text {
+                  width: parent.width
+                  text: "supersedes: " + modelData.sources.join(", ")
+                  color: root.dim
+                  font.family: root.fontFamily
+                  font.pixelSize: Style.font.caption
+                  wrapMode: Text.WordWrap
+                }
+                Text {
+                  width: parent.width
+                  text: modelData.description
+                  color: root.dim
+                  font.family: root.fontFamily
+                  font.pixelSize: Style.font.bodySmall
+                  font.italic: true
+                  wrapMode: Text.WordWrap
+                }
+                Text {
+                  width: parent.width
+                  text: modelData.body
+                  color: root.foreground
+                  font.family: root.fontFamily
+                  font.pixelSize: Style.font.bodySmall
+                  wrapMode: Text.WordWrap
+                  textFormat: Text.MarkdownText
+                }
+                PanelSeparator { width: parent.width; foreground: root.foreground }
+              }
+            }
+
+            PanelSectionHeader {
+              visible: root.consolidatePlan && root.consolidatePlan.discard.length > 0
+              text: "DISCARDED (" + (root.consolidatePlan ? root.consolidatePlan.discard.length : 0) + ")"
+              foreground: root.foreground
+              fontFamily: root.fontFamily
+            }
+
+            Repeater {
+              model: root.consolidatePlan ? root.consolidatePlan.discard : []
+
+              Column {
+                required property var modelData
+                width: parent.width
+                spacing: Style.space(2)
+
+                Text {
+                  width: parent.width
+                  text: root.titleForFile(modelData.file)
+                  color: root.urgent
+                  font.family: root.fontFamily
+                  font.pixelSize: Style.font.body
+                  wrapMode: Text.WordWrap
+                }
+                Text {
+                  width: parent.width
+                  text: modelData.reason
+                  color: root.dim
+                  font.family: root.fontFamily
+                  font.pixelSize: Style.font.caption
+                  wrapMode: Text.WordWrap
+                }
+              }
+            }
+
+            Text {
+              visible: root.consolidatePlan && root.consolidatePlan.unchanged.length > 0
+              width: parent.width
+              text: root.consolidatePlan
+                ? (root.consolidatePlan.unchanged.length + " unchanged: "
+                  + root.consolidatePlan.unchanged.map(root.titleForFile).join(", "))
+                : ""
+              color: root.dim
+              font.family: root.fontFamily
+              font.pixelSize: Style.font.caption
+              wrapMode: Text.WordWrap
+            }
+
+            PanelSeparator { foreground: root.foreground }
+
+            Text {
+              width: parent.width
+              text: "Type apply to write these changes. This can't be undone (a backup of the current memory is kept)."
+              color: root.urgent
+              font.family: root.fontFamily
+              font.pixelSize: Style.font.bodySmall
+              wrapMode: Text.WordWrap
+            }
+
+            TextField {
+              id: consolidateApplyField
+              width: parent.width
+              foreground: root.foreground
+              placeholderText: "apply"
+              text: root.consolidateApplyText
+
+              onTextChanged: root.consolidateApplyText = text
+
+              Keys.onPressed: function(event) {
+                if (event.key === Qt.Key_Escape) { root.cancelConsolidate(); event.accepted = true; return }
+                if (event.key === Qt.Key_Return || event.key === Qt.Key_Enter) {
+                  root.performConsolidateApply(); event.accepted = true; return
+                }
+              }
+            }
+
+            Row {
+              spacing: Style.spacing.md
+
+              Button {
+                text: "Cancel"
+                bordered: true
+                foreground: root.foreground
+                fontFamily: root.fontFamily
+                fontSize: Style.font.bodySmall
+                verticalPadding: Style.spacing.controlPaddingY
+                onClicked: root.cancelConsolidate()
+              }
+
+              Button {
+                text: "Apply"
+                enabled: root.consolidateApplyText.trim().toLowerCase() === "apply"
+                opacity: enabled ? 1 : 0.5
+                bordered: true
+                foreground: root.urgent
+                fontFamily: root.fontFamily
+                fontSize: Style.font.bodySmall
+                verticalPadding: Style.spacing.controlPaddingY
+                onClicked: root.performConsolidateApply()
+              }
+            }
+          }
+
+          // ---------- Consolidate: applying ----------
+          Column {
+            visible: root.viewMode === "index" && root.consolidateState === "applying"
+            width: parent.width
+            spacing: Style.space(10)
+
+            Text {
+              text: "Applying…"
+              color: root.foreground
+              font.family: root.fontFamily
+              font.pixelSize: Style.font.bodySmall
+            }
+          }
+
+          // ---------- Consolidate: error ----------
+          Column {
+            visible: root.viewMode === "index" && root.consolidateState === "error"
+            width: parent.width
+            spacing: Style.space(10)
+
+            Text {
+              width: parent.width
+              text: root.consolidateError
+              color: root.urgent
+              font.family: root.fontFamily
+              font.pixelSize: Style.font.bodySmall
+              wrapMode: Text.WordWrap
+            }
+
+            Button {
+              text: "Dismiss"
+              bordered: true
+              foreground: root.foreground
+              fontFamily: root.fontFamily
+              fontSize: Style.font.bodySmall
+              verticalPadding: Style.spacing.controlPaddingY
+              onClicked: root.dismissConsolidateError()
             }
           }
 
