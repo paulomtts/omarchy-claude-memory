@@ -54,6 +54,29 @@ Panel {
   property string deleteError: ""
   property bool deleting: false
 
+  // Consolidate: ask Claude to review this project's memory and propose a
+  // merged/pruned set. "confirming" is the pre-flight cost/time heads-up;
+  // "review" is reached only after the plan's file-accounting invariant is
+  // re-validated against the current index -- never trust the model's
+  // bookkeeping blindly. Only reachable from the memory-index view, and
+  // "locks" that view (search/manage/back hidden) until Cancel/Apply/
+  // Dismiss returns to "idle" -- see consolidateActive below.
+  property string consolidateState: "idle" // "idle"|"confirming"|"running"|"review"|"applying"|"error"
+  property string consolidateProgress: ""
+  property double consolidateStartMs: 0
+  property double consolidateNowMs: 0
+  property var consolidatePlan: null
+  property string consolidateError: ""
+  property string consolidateApplyText: ""
+
+  readonly property bool consolidateActive: root.viewMode === "index" && root.consolidateState !== "idle"
+
+  readonly property string consolidateElapsedText: {
+    if (root.consolidateState !== "running" || root.consolidateStartMs === 0) return ""
+    var secs = Math.max(0, Math.round((root.consolidateNowMs - root.consolidateStartMs) / 1000))
+    return secs + "s elapsed"
+  }
+
   function clamp(v, lo, hi) { return Math.max(lo, Math.min(hi, v)) }
 
   function matchesQuery(text) {
@@ -78,8 +101,15 @@ Panel {
   function focusForView() {
     Qt.callLater(function() {
       if (!root.opened) return
-      if (root.viewMode === "entry") { if (keyCatcher) keyCatcher.forceActiveFocus() }
-      else if (searchField) searchField.forceActiveFocus()
+      if (root.viewMode === "index" && root.consolidateState === "review") {
+        if (consolidateApplyField) consolidateApplyField.forceActiveFocus()
+      } else if (root.consolidateActive) {
+        if (keyCatcher) keyCatcher.forceActiveFocus()
+      } else if (root.viewMode === "entry") {
+        if (keyCatcher) keyCatcher.forceActiveFocus()
+      } else if (searchField) {
+        searchField.forceActiveFocus()
+      }
     })
   }
 
@@ -132,6 +162,150 @@ Panel {
     root.manageMode = true
     root.selectedKeys = only
     root.openConfirm()
+  }
+
+  function titleForFile(file) {
+    for (var i = 0; i < root.indexEntries.length; i++)
+      if (root.indexEntries[i].file === file) return root.indexEntries[i].title
+    return file
+  }
+
+  function startConsolidate() {
+    if (root.viewMode !== "index") return
+    root.manageMode = false
+    root.selectedKeys = {}
+    root.confirmOpen = false
+    root.confirmText = ""
+    root.consolidateState = "confirming"
+    root.focusForView()
+  }
+
+  function cancelConsolidateConfirm() {
+    root.consolidateState = "idle"
+    root.focusForView()
+  }
+
+  function runConsolidate() {
+    root.consolidateProgress = ""
+    root.consolidateError = ""
+    root.consolidatePlan = null
+    root.consolidateStartMs = Date.now()
+    root.consolidateNowMs = root.consolidateStartMs
+    root.consolidateState = "running"
+    var sourceDir = root.selectedProjectLabel.charAt(0) === "/" ? root.selectedProjectLabel : ""
+    consolidateProc.workingDirectory = root.selectedDir
+    consolidateProc.command = ["python3", root.pluginDir + "consolidate-run.py", root.selectedDir, sourceDir]
+    consolidateProc.running = true
+  }
+
+  function toolProgressText(name, input) {
+    var target = ""
+    if (input && input.file_path) target = String(input.file_path)
+    else if (input && input.pattern) target = String(input.pattern)
+    else if (input && input.path) target = String(input.path)
+    if (name === "Read") return "Reading " + target.split("/").pop() + "…"
+    if (name === "Grep") return "Searching " + target + "…"
+    if (name === "Glob") return "Listing " + target + "…"
+    return name ? name + "…" : ""
+  }
+
+  function handleConsolidateLine(line) {
+    var text = String(line || "").trim()
+    if (text === "") return
+    var evt
+    try { evt = JSON.parse(text) } catch (e) { return }
+    if (!evt || typeof evt !== "object") return
+
+    if (evt.type === "assistant" && evt.message && Array.isArray(evt.message.content)) {
+      var blocks = evt.message.content
+      for (var i = 0; i < blocks.length; i++) {
+        var block = blocks[i]
+        if (block && block.type === "tool_use")
+          root.consolidateProgress = root.toolProgressText(block.name, block.input)
+      }
+      return
+    }
+
+    if (evt.type === "result") {
+      if (evt.is_error) {
+        root.consolidateError = String(evt.result || "Claude Code exited with an error.")
+        root.consolidateState = "error"
+        return
+      }
+      var plan
+      try { plan = JSON.parse(String(evt.result || "")) } catch (e) {
+        root.consolidateError = "Claude's response wasn't valid JSON."
+        root.consolidateState = "error"
+        return
+      }
+      var invalid = root.validateConsolidatePlan(plan)
+      if (invalid !== "") {
+        root.consolidateError = invalid
+        root.consolidateState = "error"
+        return
+      }
+      root.consolidatePlan = plan
+      root.consolidateState = "review"
+      root.focusForView()
+    }
+  }
+
+  // Re-checks the same invariant consolidate-apply.py enforces before
+  // writing anything: every currently-indexed file must appear in exactly
+  // one of unchanged / some entry's sources / discard. Returns "" if the
+  // plan is safe to show for review, or an error string.
+  function validateConsolidatePlan(plan) {
+    if (!plan || typeof plan !== "object") return "Claude's response wasn't a JSON object."
+    var unchanged = Array.isArray(plan.unchanged) ? plan.unchanged : null
+    var entries = Array.isArray(plan.entries) ? plan.entries : null
+    var discard = Array.isArray(plan.discard) ? plan.discard : null
+    if (!unchanged || !entries || !discard) return "Claude's response was missing unchanged/entries/discard."
+
+    var accounted = {}
+    var conflict = ""
+    function account(name, bucket) {
+      if (conflict !== "") return
+      if (accounted[name]) { conflict = name + " is listed in both " + accounted[name] + " and " + bucket; return }
+      accounted[name] = bucket
+    }
+    unchanged.forEach(function(name) { account(name, "unchanged") })
+    entries.forEach(function(entry) {
+      (entry.sources || []).forEach(function(source) { account(source, "entries[].sources") })
+    })
+    discard.forEach(function(item) { account(item.file, "discard") })
+    if (conflict !== "") return conflict
+
+    var current = root.indexEntries.map(function(e) { return e.file })
+    var missing = current.filter(function(f) { return !accounted[f] })
+    var extra = Object.keys(accounted).filter(function(f) { return current.indexOf(f) < 0 })
+    if (missing.length > 0) return "Plan doesn't account for: " + missing.join(", ")
+    if (extra.length > 0) return "Plan references files not in the current index: " + extra.join(", ")
+    return ""
+  }
+
+  function cancelConsolidate() {
+    root.consolidateState = "idle"
+    root.consolidatePlan = null
+    root.consolidateError = ""
+    root.consolidateApplyText = ""
+    root.focusForView()
+  }
+
+  function dismissConsolidateError() {
+    root.consolidateState = "idle"
+    root.consolidateError = ""
+    root.focusForView()
+  }
+
+  function performConsolidateApply() {
+    if (root.consolidateApplyText.trim().toLowerCase() !== "apply") return
+    if (!root.consolidatePlan) return
+    root.consolidateError = ""
+    root.consolidateState = "applying"
+    consolidateApplyProc.stdinEnabled = true
+    consolidateApplyProc.pendingPlanJson = JSON.stringify(root.consolidatePlan)
+    consolidateApplyProc.command = ["python3", root.pluginDir + "consolidate-apply.py", root.selectedDir]
+    consolidateApplyProc.running = true
   }
 
   function toggleManageMode() {
@@ -370,6 +544,71 @@ Panel {
       // rewrites MEMORY.md, and indexFile's watchChanges reloads it.
       if (root.viewMode === "projects") root.refreshProjects()
       focusForView()
+    }
+  }
+
+  Process {
+    id: consolidateProc
+    stdout: SplitParser {
+      onRead: function(line) { root.handleConsolidateLine(line) }
+    }
+    stderr: StdioCollector { waitForEnd: true }
+    onExited: function(exitCode) {
+      if (root.consolidateState !== "running") return
+      // A clean stream always ends with a "result" line that
+      // handleConsolidateLine() already turned into "review" or "error" --
+      // reaching here while still "running" means the process died
+      // without ever emitting one (crash, killed, claude not on PATH).
+      root.consolidateError = "Claude Code exited unexpectedly" + (exitCode !== 0 ? " (exit code " + exitCode + ")." : ".")
+      root.consolidateState = "error"
+    }
+  }
+
+  Timer {
+    interval: 1000
+    running: root.consolidateState === "running"
+    repeat: true
+    onTriggered: root.consolidateNowMs = Date.now()
+  }
+
+  // pendingPlanJson is set by performConsolidateApply() right before
+  // running=true, then written and the write channel closed as soon as
+  // the process actually starts -- stdinEnabled must be explicitly reset
+  // to true before each run, since closing it (to signal EOF) is
+  // permanent for that child and does not revert by itself.
+  Process {
+    id: consolidateApplyProc
+    stdinEnabled: true
+    property string pendingPlanJson: ""
+    onStarted: {
+      write(pendingPlanJson)
+      pendingPlanJson = ""
+      stdinEnabled = false
+    }
+    stdout: StdioCollector {
+      waitForEnd: true
+      onStreamFinished: {
+        var lines = String(text || "").split("\n").filter(function(l) { return l.trim() !== "" })
+        var errors = []
+        lines.forEach(function(line) {
+          var parts = line.split("\t")
+          if (parts[0] === "error") errors.push(parts[1] + (parts[2] ? (": " + parts[2]) : ""))
+        })
+        if (errors.length > 0)
+          root.consolidateError = "Some changes couldn't be applied: " + errors.join("; ")
+      }
+    }
+    stderr: StdioCollector { waitForEnd: true }
+    onExited: function(exitCode) {
+      if (exitCode !== 0 || root.consolidateError !== "") {
+        if (root.consolidateError === "") root.consolidateError = "Applying the consolidation failed."
+        root.consolidateState = "error"
+        return
+      }
+      root.consolidatePlan = null
+      root.consolidateApplyText = ""
+      root.consolidateState = "idle"
+      root.focusForView()
     }
   }
 
