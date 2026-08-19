@@ -112,8 +112,36 @@ function validateConsolidatePlan(plan, currentFiles) {
   if (!unchanged || !entries || !discard) return "Claude's response was missing unchanged/entries/discard."
 
   return checkFilenames(unchanged, entries, discard)
+      || checkFields(entries, discard)
       || checkUniqueTargets(entries)
       || checkAccounting(unchanged, entries, discard, currentFiles || [])
+}
+
+// Every field the review screen renders and the apply step interpolates
+// into frontmatter or an index line has to be a string, and the
+// single-line ones can't carry a newline that would forge a second YAML
+// key or a second index entry.
+function checkFields(entries, discard) {
+  for (var e = 0; e < entries.length; e++) {
+    var fields = ["title", "description", "type"]
+    for (var f = 0; f < fields.length; f++)
+      if (!isSingleLineString(field(entries[e], fields[f])))
+        return "Entry missing or invalid field: " + fields[f]
+    if (typeof field(entries[e], "body") !== "string") return "Entry missing or invalid field: body"
+    if (!Array.isArray(field(entries[e], "sources"))) return "Entry missing or invalid field: sources"
+  }
+  for (var d = 0; d < discard.length; d++)
+    if (!isSingleLineString(field(discard[d], "reason")))
+      return "Discard item missing or invalid field: reason"
+  return ""
+}
+
+function field(obj, name) {
+  return (obj && typeof obj === "object") ? obj[name] : undefined
+}
+
+function isSingleLineString(value) {
+  return typeof value === "string" && value.indexOf("\n") < 0
 }
 
 function checkFilenames(unchanged, entries, discard) {

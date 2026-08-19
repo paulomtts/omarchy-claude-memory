@@ -141,6 +141,33 @@ TestCase {
     verify(Logic.validateConsolidatePlan(data.plan, []).indexOf(data.reason) === 0)
   }
 
+  // The review screen renders these, and the apply step writes them into
+  // YAML frontmatter and an index line, so a newline in one would forge a
+  // key or a second entry.
+  function test_rejects_unwritable_entry_fields_data() {
+    return [
+      { tag: "no title", overrides: { title: undefined }, reason: "Entry missing or invalid field: title" },
+      { tag: "newline in title", overrides: { title: "a\nb" }, reason: "Entry missing or invalid field: title" },
+      { tag: "description not a string", overrides: { description: 3 }, reason: "Entry missing or invalid field: description" },
+      { tag: "newline in type", overrides: { type: "note\nsmuggled: yes" }, reason: "Entry missing or invalid field: type" },
+      { tag: "no body", overrides: { body: undefined }, reason: "Entry missing or invalid field: body" },
+      { tag: "sources not a list", overrides: { sources: "a.md" }, reason: "Entry missing or invalid field: sources" }
+    ]
+  }
+
+  function test_rejects_unwritable_entry_fields(data) {
+    var plan = validPlan()
+    for (var key in data.overrides) plan.entries[0][key] = data.overrides[key]
+    compare(Logic.validateConsolidatePlan(plan, currentFiles()), data.reason)
+  }
+
+  function test_rejects_a_discard_without_a_reason() {
+    var plan = validPlan()
+    plan.discard = [{ file: "junk.md" }]
+    compare(Logic.validateConsolidatePlan(plan, currentFiles()),
+            "Discard item missing or invalid field: reason")
+  }
+
   function test_rejects_a_plan_that_isnt_shaped_like_one_data() {
     return [
       { tag: "not an object", plan: "nope" },
