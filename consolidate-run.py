@@ -73,6 +73,11 @@ Read MEMORY.md and every note file it links to. Then:
 - Leave a note unchanged if it's still accurate and useful and doesn't
   belong in a merge.
 
+Prefer several focused files over one large file -- only merge notes that
+are genuinely about the same narrow topic. There's no requirement to
+collapse everything down to a single file; keep unrelated topics as
+separate entries even when you're touching many source files.
+
 Every original note file must be accounted for in exactly one of: unchanged,
 one merged/edited entry's sources, or discard. When a merge needs a new
 file (rather than reusing one source's filename), give it a short
@@ -92,6 +97,11 @@ Read MEMORY.md and every note file it links to. Then:
 - Discard notes that are stale, internally contradictory, or no longer
   useful.
 - Leave a note unchanged if it's still useful and doesn't belong in a merge.
+
+Prefer several focused files over one large file -- only merge notes that
+are genuinely about the same narrow topic. There's no requirement to
+collapse everything down to a single file; keep unrelated topics as
+separate entries even when you're touching many source files.
 
 Every original note file must be accounted for in exactly one of: unchanged,
 one merged/edited entry's sources, or discard. When a merge needs a new

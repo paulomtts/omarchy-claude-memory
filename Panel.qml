@@ -68,6 +68,10 @@ Panel {
   property var consolidatePlan: null
   property string consolidateError: ""
   property string consolidateApplyText: ""
+  // filename -> raw old content, fetched once the plan is validated, so the
+  // review screen can show a real before/after instead of just a filename
+  // list. Missing key (not "") means "not fetched yet or unreadable".
+  property var consolidateOldContent: ({})
 
   readonly property bool consolidateActive: root.viewMode === "index" && root.consolidateState !== "idle"
 
@@ -170,6 +174,47 @@ Panel {
     return file
   }
 
+  // Old-content lookups for the review screen's before/after display.
+  // consolidateOldContent holds raw file content keyed by filename, fetched
+  // once per plan by fetchOldContent(); a missing key means "not fetched
+  // yet or the file couldn't be read", not "empty file".
+  function oldBodyFor(file) {
+    var raw = root.consolidateOldContent[file]
+    return raw === undefined ? "" : root.parseEntry(raw).body
+  }
+
+  function oldEntriesFor(sources) {
+    return (sources || []).map(function(f) {
+      var raw = root.consolidateOldContent[f]
+      var available = raw !== undefined
+      var parsed = available ? root.parseEntry(raw) : null
+      return {
+        file: f,
+        title: parsed && parsed.name !== "" ? parsed.name : f,
+        body: available ? parsed.body : "",
+        available: available
+      }
+    })
+  }
+
+  // Fetches the real current content of every file the plan is about to
+  // supersede or discard, so the review screen can show what's actually
+  // there instead of trusting the model's own account of it.
+  function fetchOldContent(plan) {
+    var entries = plan.entries || []
+    var discards = plan.discard || []
+    var files = {}
+    entries.forEach(function(entry) {
+      (entry.sources || []).forEach(function(f) { files[f] = true })
+    })
+    discards.forEach(function(item) { files[item.file] = true })
+    var names = Object.keys(files)
+    root.consolidateOldContent = {}
+    if (names.length === 0) return
+    oldContentProc.command = ["python3", root.pluginDir + "read-entries.py", root.selectedDir].concat(names)
+    oldContentProc.running = true
+  }
+
   function startConsolidate() {
     if (root.viewMode !== "index") return
     root.manageMode = false
@@ -189,6 +234,7 @@ Panel {
     root.consolidateProgress = ""
     root.consolidateError = ""
     root.consolidatePlan = null
+    root.consolidateOldContent = {}
     root.consolidateApplyText = ""
     root.consolidateStartMs = Date.now()
     root.consolidateNowMs = root.consolidateStartMs
@@ -247,6 +293,7 @@ Panel {
       }
       root.consolidatePlan = plan
       root.consolidateState = "review"
+      root.fetchOldContent(plan)
       root.focusForView()
     }
   }
@@ -333,6 +380,7 @@ Panel {
   function cancelConsolidate() {
     root.consolidateState = "idle"
     root.consolidatePlan = null
+    root.consolidateOldContent = {}
     root.consolidateError = ""
     root.consolidateApplyText = ""
     root.focusForView()
@@ -353,6 +401,7 @@ Panel {
   function resetConsolidate() {
     root.consolidateState = "idle"
     root.consolidatePlan = null
+    root.consolidateOldContent = {}
     root.consolidateError = ""
     root.consolidateApplyText = ""
     root.consolidateProgress = ""
@@ -518,9 +567,16 @@ Panel {
     return { name: name, description: description, type: type, body: body.trim() }
   }
 
+  // A closed panel isn't destroyed -- its Process items (including
+  // consolidateProc) keep running in the background, and selectedDir/
+  // viewMode are frozen exactly where they were, since navigating away is
+  // already blocked while consolidateActive is true. So a reopen only
+  // resets to the projects list when there's nothing in flight to resume;
+  // otherwise it just re-establishes focus for whatever state was left.
   onOpenedChanged: if (opened) {
     if (panelFlick) panelFlick.contentY = 0
-    openProjects()
+    if (root.consolidateState === "idle") openProjects()
+    else focusForView()
   }
 
   onConfirmOpenChanged: if (confirmOpen) Qt.callLater(function() {
@@ -633,6 +689,22 @@ Panel {
     running: root.consolidateState === "running"
     repeat: true
     onTriggered: root.consolidateNowMs = Date.now()
+  }
+
+  // command[] is set by fetchOldContent() right before each run. Best-effort:
+  // a read failure just leaves the affected file(s) out of the result, which
+  // oldEntriesFor()/oldBodyFor() render as "not available" rather than
+  // blocking the review screen.
+  Process {
+    id: oldContentProc
+    stdout: StdioCollector {
+      waitForEnd: true
+      onStreamFinished: {
+        try { root.consolidateOldContent = JSON.parse(text || "{}") }
+        catch (e) { root.consolidateOldContent = {} }
+      }
+    }
+    stderr: StdioCollector { waitForEnd: true }
   }
 
   // pendingPlanJson is set by performConsolidateApply() right before
@@ -1165,7 +1237,7 @@ Panel {
               Column {
                 required property var modelData
                 width: parent.width
-                spacing: Style.space(4)
+                spacing: Style.space(6)
 
                 Text {
                   width: parent.width
@@ -1176,13 +1248,72 @@ Panel {
                   font.bold: true
                   wrapMode: Text.WordWrap
                 }
-                Text {
+
+                // ---- Before: the real current content of every file this
+                // entry supersedes, fetched by fetchOldContent() -- not
+                // Claude's account of it. ----
+                Column {
                   width: parent.width
-                  text: "supersedes: " + modelData.sources.join(", ")
-                  color: root.dim
+                  spacing: Style.space(6)
+                  visible: beforeRepeater.count > 0
+
+                  Text {
+                    text: "BEFORE"
+                    color: root.dim
+                    font.family: root.fontFamily
+                    font.pixelSize: Style.font.caption
+                    font.bold: true
+                  }
+
+                  Repeater {
+                    id: beforeRepeater
+                    model: root.oldEntriesFor(modelData.sources)
+
+                    Column {
+                      required property var modelData
+                      width: parent.width
+                      spacing: Style.space(2)
+                      opacity: 0.75
+
+                      Text {
+                        width: parent.width
+                        text: modelData.title
+                        color: root.dim
+                        font.family: root.fontFamily
+                        font.pixelSize: Style.font.caption
+                        font.bold: true
+                        wrapMode: Text.WordWrap
+                      }
+                      Text {
+                        visible: modelData.available
+                        width: parent.width
+                        text: modelData.body
+                        color: root.dim
+                        font.family: root.fontFamily
+                        font.pixelSize: Style.font.bodySmall
+                        wrapMode: Text.WordWrap
+                        textFormat: Text.MarkdownText
+                      }
+                      Text {
+                        visible: !modelData.available
+                        width: parent.width
+                        text: "(original content unavailable)"
+                        color: root.dim
+                        font.family: root.fontFamily
+                        font.pixelSize: Style.font.caption
+                        font.italic: true
+                      }
+                    }
+                  }
+                }
+
+                // ---- After: what's proposed. ----
+                Text {
+                  text: "AFTER"
+                  color: root.foreground
                   font.family: root.fontFamily
                   font.pixelSize: Style.font.caption
-                  wrapMode: Text.WordWrap
+                  font.bold: true
                 }
                 Text {
                   width: parent.width
@@ -1236,6 +1367,19 @@ Panel {
                   font.family: root.fontFamily
                   font.pixelSize: Style.font.caption
                   wrapMode: Text.WordWrap
+                }
+                Text {
+                  visible: root.oldBodyFor(modelData.file) !== ""
+                  width: parent.width
+                  text: root.oldBodyFor(modelData.file)
+                  color: root.dim
+                  font.family: root.fontFamily
+                  font.pixelSize: Style.font.caption
+                  wrapMode: Text.WordWrap
+                  textFormat: Text.MarkdownText
+                  opacity: 0.7
+                  maximumLineCount: 4
+                  elide: Text.ElideRight
                 }
               }
             }
