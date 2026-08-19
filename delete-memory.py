@@ -29,6 +29,16 @@ import sys
 INDEX_LINE_RE = re.compile(r"^-\s*\[([^\]]+)\]\(([^)]+)\)\s*(.*)$")
 
 
+def normalize_href(href):
+    """A leading "./" is a no-op for actually opening the file, but it
+    breaks a plain string-equality match against a bare filename (e.g. one
+    passed in on argv). Every index-line href gets normalized through here
+    so it agrees with Panel.qml's own parseIndex() and consolidate-apply.py's
+    equivalent helper."""
+    href = href.strip()
+    return href[2:] if href.startswith("./") else href
+
+
 def is_memory_dir(path):
     return os.path.isdir(path) and os.path.basename(os.path.normpath(path)) == "memory"
 
@@ -81,7 +91,7 @@ def delete_entries(memory_dir, filenames):
     kept = []
     for line in lines:
         m = INDEX_LINE_RE.match(line)
-        if m and m.group(2).strip() in removed:
+        if m and normalize_href(m.group(2)) in removed:
             continue
         kept.append(line)
     with open(index_path, "w", encoding="utf-8") as f:

@@ -46,6 +46,17 @@ def is_safe_filename(name):
     return name != "" and "/" not in name and name not in (".", "..")
 
 
+def normalize_href(href):
+    """A leading "./" is a no-op for actually opening the file, but it
+    breaks every comparison done by exact string equality -- notably a
+    consolidation plan, which references files by the bare name Read/Glob
+    report, never "./name". Every index-line href gets normalized through
+    here so the rest of this script (and Panel.qml's own parseIndex())
+    agree on one form."""
+    href = href.strip()
+    return href[2:] if href.startswith("./") else href
+
+
 def existing_entry_files(memory_dir):
     """Every file this project's MEMORY.md currently links to."""
     index_path = os.path.join(memory_dir, "MEMORY.md")
@@ -56,7 +67,7 @@ def existing_entry_files(memory_dir):
         for line in f.read().split("\n"):
             m = INDEX_LINE_RE.match(line)
             if m:
-                files.add(m.group(2).strip())
+                files.add(normalize_href(m.group(2)))
     return files
 
 
@@ -183,7 +194,7 @@ def rewrite_index(memory_dir, plan):
     kept = []
     for line in lines:
         m = INDEX_LINE_RE.match(line)
-        if m and m.group(2).strip() in drop:
+        if m and normalize_href(m.group(2)) in drop:
             continue
         kept.append(line)
 

@@ -543,7 +543,15 @@ Panel {
       if (!m) continue
       out.push({
         title: m[1].trim(),
-        file: m[2].trim(),
+        // A "./" prefix is a no-op for actually opening the file (joined
+        // onto selectedDir it still resolves), but it breaks every place
+        // that compares filenames by exact string equality -- notably
+        // Claude's own consolidation plans, which reference files by the
+        // bare name Read/Glob report, never "./name". Normalize once here
+        // so every consumer of indexEntries sees the same bare form
+        // consolidate-apply.py's INDEX_LINE_RE-based parsing already
+        // assumes.
+        file: m[2].trim().replace(/^\.\//, ""),
         hook: String(m[3] || "").replace(/^[—-]\s*/, "").trim()
       })
     }
