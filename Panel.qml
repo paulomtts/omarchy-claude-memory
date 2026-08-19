@@ -421,8 +421,11 @@ Panel {
       anchors.fill: parent
 
       // Only reachable in the "entry" view (search field owns the keys
-      // everywhere else) -- plain pixel scroll and back/close.
+      // everywhere else) -- plain pixel scroll, Left-back, and close.
+      // There's no "forward" target from the deepest view, so Right is a
+      // no-op here rather than dead-ending on a wrong assumption.
       onMoveRequested: function(dx, dy) {
+        if (dx < 0) { root.goBack(); return }
         if (dy !== 0 && panelFlick)
           panelFlick.contentY = root.clamp(panelFlick.contentY + dy * Style.space(56), 0,
                                             Math.max(0, panelFlick.contentHeight - panelFlick.height))
