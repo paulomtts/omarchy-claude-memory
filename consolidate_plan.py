@@ -129,15 +129,19 @@ def _check_accounting(plan, current):
     missing = current - set(accounted)
     if missing:
         return "plan doesn't account for: " + ", ".join(sorted(missing))
-    # A name the model invented for one of its own new entries sometimes
-    # also turns up in that same entry's sources or in unchanged -- e.g. it
-    # names a merge target, then mentions that same name again while
-    # explaining what it's about. Harmless self-reference to a file that
-    # doesn't exist yet, not an invented *old* file, so it doesn't count as
-    # "extra". files_to_delete() separately guarantees a fresh entry target
-    # is never deleted even if this same confusion puts it in discard.
+    # Two kinds of harmless noise the model sometimes puts in
+    # unchanged/sources/discard, neither of which is an invented *old* file
+    # that got silently dropped: (1) an entry's own new target, mentioned
+    # again while explaining what it's about -- files_to_delete()
+    # separately guarantees that one is never deleted even if this same
+    # confusion puts it in discard instead; and (2) something that was
+    # never a filename at all, e.g. a phrase or identifier it picked up
+    # from the source project and mistook for one of the notes. Every real
+    # note -- existing or newly created -- ends in .md by this plugin's own
+    # naming convention, so anything that doesn't can't legitimately be a
+    # lost note; only .md-suffixed extras are worth rejecting the plan over.
     new_targets = set(_field(entry, "file") for entry in _entries(plan))
-    extra = set(accounted) - current - new_targets
+    extra = set(name for name in set(accounted) - current - new_targets if name.endswith(".md"))
     if extra:
         return "plan references files that aren't in the current index: " + ", ".join(sorted(extra))
 

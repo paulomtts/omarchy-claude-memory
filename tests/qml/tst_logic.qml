@@ -116,6 +116,20 @@ TestCase {
     compare(Logic.validateConsolidatePlan(plan, currentFiles()), "")
   }
 
+  function test_tolerates_a_stray_non_filename_token() {
+    // A real note is always *.md by this plugin's own convention -- a
+    // token with no .md suffix was never a filename to begin with.
+    var plan = validPlan()
+    plan.unchanged = ["keep.md", "some_workspace_task_identifier"]
+    compare(Logic.validateConsolidatePlan(plan, currentFiles()), "")
+  }
+
+  function test_a_stray_token_does_not_hide_a_real_missing_file() {
+    var plan = validPlan()
+    plan.unchanged = ["some_workspace_task_identifier"]
+    verify(Logic.validateConsolidatePlan(plan, currentFiles()).indexOf("doesn't account for: keep.md") >= 0)
+  }
+
   function test_rejects_a_file_accounted_for_twice() {
     var plan = validPlan()
     plan.unchanged = ["keep.md", "a.md"]

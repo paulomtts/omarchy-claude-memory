@@ -193,15 +193,20 @@ function checkAccounting(unchanged, entries, discard, currentFiles) {
 
   var missing = currentFiles.filter(function(f) { return !accounted[f] })
   if (missing.length > 0) return "Plan doesn't account for: " + missing.join(", ")
-  // A name the model invented for one of its own new entries sometimes
-  // also turns up in that same entry's sources or in unchanged -- harmless
-  // self-reference to a file that doesn't exist yet, not an invented *old*
-  // file, so it doesn't count as "extra". The apply side separately
-  // guarantees a fresh entry target is never deleted even if this same
-  // confusion puts it in discard instead.
+  // Two kinds of harmless noise the model sometimes puts in
+  // unchanged/sources/discard, neither of which is an invented *old* file
+  // that got silently dropped: (1) an entry's own new target, mentioned
+  // again while explaining what it's about -- the apply side separately
+  // guarantees that one is never deleted even if this same confusion puts
+  // it in discard instead; and (2) something that was never a filename at
+  // all, e.g. a phrase or identifier it picked up from the source project
+  // and mistook for one of the notes. Every real note -- existing or newly
+  // created -- ends in .md by this plugin's own naming convention, so
+  // anything that doesn't can't legitimately be a lost note; only
+  // .md-suffixed extras are worth rejecting the plan over.
   var newTargets = entries.map(entryFile)
   var extra = Object.keys(accounted).filter(function(f) {
-    return currentFiles.indexOf(f) < 0 && newTargets.indexOf(f) < 0
+    return currentFiles.indexOf(f) < 0 && newTargets.indexOf(f) < 0 && f.endsWith(".md")
   })
   if (extra.length > 0) return "Plan references files not in the current index: " + extra.join(", ")
 

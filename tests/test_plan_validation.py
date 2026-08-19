@@ -80,6 +80,22 @@ def test_an_entry_naming_its_own_new_target_as_a_source_is_tolerated(plan):
     assert validate_plan(confused, CURRENT) is None
 
 
+def test_a_stray_non_filename_token_is_tolerated_not_rejected(plan):
+    # A real note is always *.md by this plugin's own convention -- a token
+    # with no .md suffix (a phrase or identifier picked up from the source
+    # project, mistaken for one of the notes) was never a filename, so it's
+    # silently dropped rather than treated as an invented old file.
+    confused = mutate(plan, unchanged=["keep.md", "some_workspace_task_identifier"])
+    assert validate_plan(confused, CURRENT) is None
+
+
+def test_a_stray_non_filename_token_does_not_hide_a_real_missing_file(plan):
+    # The leniency above must not swallow an actual accounting failure: with
+    # keep.md dropped from unchanged, that's still "missing", token or not.
+    confused = mutate(plan, unchanged=["some_workspace_task_identifier"])
+    assert "doesn't account for: keep.md" in validate_plan(confused, CURRENT)
+
+
 @pytest.mark.parametrize("changes, expected", [
     ({"unchanged": ["keep.md", "a.md"]}, "a.md is listed in both unchanged and entries[].sources"),
     ({"discard": [{"file": "keep.md", "reason": "r"}, {"file": "junk.md", "reason": "r"}]},
