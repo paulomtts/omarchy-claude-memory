@@ -14,36 +14,32 @@ import json
 import os
 import sys
 
-
-def is_memory_dir(path):
-    return os.path.isdir(path) and os.path.basename(os.path.normpath(path)) == "memory"
+from claude_memory import is_memory_dir, is_safe_filename
 
 
-def is_safe_filename(name):
-    return name != "" and "/" not in name and name not in (".", "..")
+def read_entries(memory_dir, filenames):
+    if not is_memory_dir(memory_dir):
+        return {}
+    contents = {}
+    for name in filenames:
+        if not is_safe_filename(name):
+            continue
+        path = os.path.join(memory_dir, name)
+        if not os.path.isfile(path):
+            continue
+        try:
+            with open(path, "r", encoding="utf-8") as f:
+                contents[name] = f.read()
+        except OSError:
+            pass
+    return contents
 
 
 def main():
     if len(sys.argv) < 2:
         print(json.dumps({}))
         return
-    memory_dir = sys.argv[1]
-    filenames = sys.argv[2:]
-
-    result = {}
-    if is_memory_dir(memory_dir):
-        for name in filenames:
-            if not is_safe_filename(name):
-                continue
-            path = os.path.join(memory_dir, name)
-            if os.path.isfile(path):
-                try:
-                    with open(path, "r", encoding="utf-8") as f:
-                        result[name] = f.read()
-                except OSError:
-                    pass
-
-    print(json.dumps(result))
+    print(json.dumps(read_entries(sys.argv[1], sys.argv[2:])))
 
 
 if __name__ == "__main__":
