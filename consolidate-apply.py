@@ -83,6 +83,21 @@ def validate_plan(memory_dir, plan):
         if not is_safe_filename(item.get("file", "")):
             return "unsafe filename in discard: " + str(item.get("file"))
 
+    def is_clean_str(value):
+        return isinstance(value, str) and "\n" not in value
+
+    for entry in entries:
+        for field in ("title", "description", "type"):
+            if not is_clean_str(entry.get(field)):
+                return "entry missing or invalid field: " + field
+        if not isinstance(entry.get("body"), str):
+            return "entry missing or invalid field: body"
+        if not isinstance(entry.get("sources"), list):
+            return "entry missing or invalid field: sources"
+    for item in discard:
+        if not is_clean_str(item.get("reason")):
+            return "discard item missing or invalid field: reason"
+
     target_files = [entry.get("file", "") for entry in entries]
     if len(target_files) != len(set(target_files)):
         return "two entries target the same file"

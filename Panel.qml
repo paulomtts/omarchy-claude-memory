@@ -189,6 +189,7 @@ Panel {
     root.consolidateProgress = ""
     root.consolidateError = ""
     root.consolidatePlan = null
+    root.consolidateApplyText = ""
     root.consolidateStartMs = Date.now()
     root.consolidateNowMs = root.consolidateStartMs
     root.consolidateState = "running"
@@ -206,7 +207,7 @@ Panel {
     if (name === "Read") return "Reading " + target.split("/").pop() + "…"
     if (name === "Grep") return "Searching " + target + "…"
     if (name === "Glob") return "Listing " + target + "…"
-    return name ? name + "…" : ""
+    return ""
   }
 
   function handleConsolidateLine(line) {
@@ -260,6 +261,10 @@ Panel {
   // error string here instead of an uncaught throw that would strand
   // consolidateState at "running" forever. Returns "" if the plan is safe
   // to show for review, or an error string.
+  function safeName(n) {
+    return n !== "" && n.indexOf("/") < 0 && n !== "." && n !== ".."
+  }
+
   function validateConsolidatePlan(plan) {
     if (!plan || typeof plan !== "object") return "Claude's response wasn't a JSON object."
     var unchanged = Array.isArray(plan.unchanged) ? plan.unchanged : null
@@ -270,6 +275,20 @@ Panel {
     function entryFile(entry) { return (entry && typeof entry === "object" && entry.file) ? String(entry.file) : "" }
     function entrySources(entry) { return (entry && typeof entry === "object" && Array.isArray(entry.sources)) ? entry.sources : [] }
     function discardFile(item) { return (item && typeof item === "object" && item.file) ? String(item.file) : "" }
+
+    for (var u = 0; u < unchanged.length; u++)
+      if (!root.safeName(String(unchanged[u]))) return "Unsafe filename in unchanged: " + unchanged[u]
+    for (var e = 0; e < entries.length; e++) {
+      var ef = entryFile(entries[e])
+      if (!root.safeName(ef)) return "Unsafe filename in entries: " + ef
+      var esrcs = entrySources(entries[e])
+      for (var s = 0; s < esrcs.length; s++)
+        if (!root.safeName(String(esrcs[s]))) return "Unsafe source filename: " + esrcs[s]
+    }
+    for (var d = 0; d < discard.length; d++) {
+      var df = discardFile(discard[d])
+      if (!root.safeName(df)) return "Unsafe filename in discard: " + df
+    }
 
     var seenTargets = {}
     var dupTarget = ""
@@ -322,7 +341,22 @@ Panel {
   function dismissConsolidateError() {
     root.consolidateState = "idle"
     root.consolidateError = ""
+    root.consolidateApplyText = ""
     root.focusForView()
+  }
+
+  // Full teardown of any in-flight consolidate flow, including stopping the
+  // background process. Called from every navigation path that leaves the
+  // memory-index view (or re-enters it for a different project) so nothing
+  // can orphan a running/applying process or bleed a stale plan into an
+  // unrelated project -- see consolidateActive above.
+  function resetConsolidate() {
+    root.consolidateState = "idle"
+    root.consolidatePlan = null
+    root.consolidateError = ""
+    root.consolidateApplyText = ""
+    root.consolidateProgress = ""
+    consolidateProc.running = false
   }
 
   function performConsolidateApply() {
@@ -418,6 +452,7 @@ Panel {
     selectedDir = ""
     selectedFilePath = ""
     resetSearch()
+    resetConsolidate()
     refreshProjects()
     focusForView()
   }
@@ -430,6 +465,7 @@ Panel {
     loadError = ""
     viewMode = "index"
     resetSearch()
+    resetConsolidate()
     if (panelFlick) panelFlick.contentY = 0
     focusForView()
   }
@@ -693,7 +729,11 @@ Panel {
       // There's no "forward" target from the deepest view, so Right is a
       // no-op here rather than dead-ending on a wrong assumption.
       onMoveRequested: function(dx, dy) {
-        if (dx < 0) { root.goBack(); return }
+        if (dx < 0) {
+          if (root.consolidateActive) return
+          root.goBack()
+          return
+        }
         if (dy !== 0 && panelFlick)
           panelFlick.contentY = root.clamp(panelFlick.contentY + dy * Style.space(56), 0,
                                             Math.max(0, panelFlick.contentHeight - panelFlick.height))
@@ -1083,6 +1123,16 @@ Panel {
               color: root.dim
               font.family: root.fontFamily
               font.pixelSize: Style.font.caption
+            }
+
+            Button {
+              text: "Cancel"
+              bordered: true
+              foreground: root.foreground
+              fontFamily: root.fontFamily
+              fontSize: Style.font.bodySmall
+              verticalPadding: Style.spacing.controlPaddingY
+              onClicked: root.resetConsolidate()
             }
           }
 
