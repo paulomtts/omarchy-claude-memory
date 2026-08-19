@@ -238,6 +238,32 @@ def apply_plan(memory_dir, plan):
         print("error\tMEMORY.md\t" + str(e))
 
 
+def sanitize_plan(plan):
+    """MEMORY.md is the index itself, not one of the notes it links to, but
+    the model sometimes lists it in unchanged/sources/discard anyway even
+    though the instructions only ask it to account for linked note files.
+    A mention of it is harmless noise -- strip it wherever it appears
+    before validation or use, rather than let it either block an
+    otherwise-complete plan (accounted-for-but-not-in-the-index) or, worse,
+    end up in some entry's sources where apply_plan() would delete it as
+    "superseded"."""
+    if not isinstance(plan, dict):
+        return plan
+    index_file = "MEMORY.md"
+    if isinstance(plan.get("unchanged"), list):
+        plan["unchanged"] = [f for f in plan["unchanged"] if f != index_file]
+    if isinstance(plan.get("entries"), list):
+        for entry in plan["entries"]:
+            if isinstance(entry, dict) and isinstance(entry.get("sources"), list):
+                entry["sources"] = [s for s in entry["sources"] if s != index_file]
+    if isinstance(plan.get("discard"), list):
+        plan["discard"] = [
+            item for item in plan["discard"]
+            if not (isinstance(item, dict) and item.get("file") == index_file)
+        ]
+    return plan
+
+
 def main():
     if len(sys.argv) < 2:
         print("error\t\tusage: consolidate-apply.py <memory_dir> (plan JSON on stdin)")
@@ -253,6 +279,8 @@ def main():
     except ValueError as e:
         print("error\t\tinvalid plan JSON: " + str(e))
         sys.exit(1)
+
+    plan = sanitize_plan(plan)
 
     error = validate_plan(memory_dir, plan)
     if error:

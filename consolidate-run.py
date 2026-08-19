@@ -79,10 +79,12 @@ collapse everything down to a single file; keep unrelated topics as
 separate entries even when you're touching many source files.
 
 Every original note file must be accounted for in exactly one of: unchanged,
-one merged/edited entry's sources, or discard. When a merge needs a new
-file (rather than reusing one source's filename), give it a short
-snake_case name ending in .md, in the style of the existing note filenames
-(e.g. feedback_topic.md). Do not modify any files -- report your plan only.
+one merged/edited entry's sources, or discard. MEMORY.md itself is the
+index, not one of the notes -- do not list it in unchanged, sources, or
+discard. When a merge needs a new file (rather than reusing one source's
+filename), give it a short snake_case name ending in .md, in the style of
+the existing note filenames (e.g. feedback_topic.md). Do not modify any
+files -- report your plan only.
 Return your plan as JSON matching the provided schema."""
 
 INSTRUCTIONS_NO_SOURCE = """You are consolidating the persistent memory notes for a software project.
@@ -104,10 +106,12 @@ collapse everything down to a single file; keep unrelated topics as
 separate entries even when you're touching many source files.
 
 Every original note file must be accounted for in exactly one of: unchanged,
-one merged/edited entry's sources, or discard. When a merge needs a new
-file (rather than reusing one source's filename), give it a short
-snake_case name ending in .md, in the style of the existing note filenames
-(e.g. feedback_topic.md). Do not modify any files -- report your plan only.
+one merged/edited entry's sources, or discard. MEMORY.md itself is the
+index, not one of the notes -- do not list it in unchanged, sources, or
+discard. When a merge needs a new file (rather than reusing one source's
+filename), give it a short snake_case name ending in .md, in the style of
+the existing note filenames (e.g. feedback_topic.md). Do not modify any
+files -- report your plan only.
 Return your plan as JSON matching the provided schema."""
 
 

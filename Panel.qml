@@ -285,6 +285,7 @@ Panel {
         root.consolidateState = "error"
         return
       }
+      plan = root.sanitizeConsolidatePlan(plan)
       var invalid = root.validateConsolidatePlan(plan)
       if (invalid !== "") {
         root.consolidateError = invalid
@@ -296,6 +297,31 @@ Panel {
       root.fetchOldContent(plan)
       root.focusForView()
     }
+  }
+
+  // MEMORY.md is the index itself, not one of the notes it links to, but
+  // the model sometimes lists it in unchanged/sources/discard anyway even
+  // though the instructions only ask it to account for linked note files.
+  // A mention of it is harmless noise -- strip it wherever it appears
+  // before validation or storage, rather than let it either block an
+  // otherwise-complete plan (accounted-for-but-not-in-the-index) or, worse,
+  // end up in some entry's sources where the apply side would delete it as
+  // "superseded". Mirrors consolidate-apply.py's own sanitize_plan(), and
+  // runs before that script ever sees the plan too, since
+  // performConsolidateApply() sends whatever's in root.consolidatePlan.
+  function sanitizeConsolidatePlan(plan) {
+    if (!plan || typeof plan !== "object") return plan
+    var INDEX_FILE = "MEMORY.md"
+    if (Array.isArray(plan.unchanged))
+      plan.unchanged = plan.unchanged.filter(function(f) { return f !== INDEX_FILE })
+    if (Array.isArray(plan.entries))
+      plan.entries.forEach(function(entry) {
+        if (entry && Array.isArray(entry.sources))
+          entry.sources = entry.sources.filter(function(s) { return s !== INDEX_FILE })
+      })
+    if (Array.isArray(plan.discard))
+      plan.discard = plan.discard.filter(function(item) { return !item || item.file !== INDEX_FILE })
+    return plan
   }
 
   // Re-checks the same invariants consolidate-apply.py enforces before
