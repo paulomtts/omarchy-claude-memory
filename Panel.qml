@@ -364,6 +364,7 @@ Panel {
       root.confirmText = ""
       root.selectedKeys = {}
       root.cursorIndex = 0
+      root.manageMode = false
       // Deleted project dirs no longer show up on disk -- reload the list.
       // Deleted index entries are picked up for free: delete-memory.py
       // rewrites MEMORY.md, and indexFile's watchChanges reloads it.
