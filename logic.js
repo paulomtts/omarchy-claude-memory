@@ -193,7 +193,16 @@ function checkAccounting(unchanged, entries, discard, currentFiles) {
 
   var missing = currentFiles.filter(function(f) { return !accounted[f] })
   if (missing.length > 0) return "Plan doesn't account for: " + missing.join(", ")
-  var extra = Object.keys(accounted).filter(function(f) { return currentFiles.indexOf(f) < 0 })
+  // A name the model invented for one of its own new entries sometimes
+  // also turns up in that same entry's sources or in unchanged -- harmless
+  // self-reference to a file that doesn't exist yet, not an invented *old*
+  // file, so it doesn't count as "extra". The apply side separately
+  // guarantees a fresh entry target is never deleted even if this same
+  // confusion puts it in discard instead.
+  var newTargets = entries.map(entryFile)
+  var extra = Object.keys(accounted).filter(function(f) {
+    return currentFiles.indexOf(f) < 0 && newTargets.indexOf(f) < 0
+  })
   if (extra.length > 0) return "Plan references files not in the current index: " + extra.join(", ")
 
   for (var i = 0; i < entries.length; i++) {

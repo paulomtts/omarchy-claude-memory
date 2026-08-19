@@ -71,6 +71,15 @@ def test_a_note_that_isnt_in_the_index_is_rejected(plan):
     assert "aren't in the current index: ghost.md" in validate_plan(invented, CURRENT)
 
 
+def test_an_entry_naming_its_own_new_target_as_a_source_is_tolerated(plan):
+    # merged.md doesn't exist yet -- mentioning it isn't inventing an *old*
+    # file, it's the model confusing its own new filename for one of the
+    # notes it's about. Harmless as long as files_to_delete() below still
+    # refuses to delete it.
+    confused = mutate(plan, entries=[entry("merged.md", ["a.md", "b.md", "merged.md"])])
+    assert validate_plan(confused, CURRENT) is None
+
+
 @pytest.mark.parametrize("changes, expected", [
     ({"unchanged": ["keep.md", "a.md"]}, "a.md is listed in both unchanged and entries[].sources"),
     ({"discard": [{"file": "keep.md", "reason": "r"}, {"file": "junk.md", "reason": "r"}]},
@@ -195,6 +204,15 @@ def test_only_sources_folded_under_another_name_are_superseded():
 
 def test_deletions_are_the_superseded_sources_plus_the_discards(plan):
     assert files_to_delete(plan) == {"a.md", "b.md", "junk.md"}
+
+
+def test_an_entrys_own_target_is_never_deleted_even_if_also_discarded():
+    # apply_plan() writes entries before deleting this set -- if the model
+    # confusedly discards the very file it just created, deleting it here
+    # would destroy the fresh output in the same run.
+    plan = {"unchanged": [], "entries": [entry("merged.md", ["a.md"])],
+            "discard": [{"file": "merged.md", "reason": "superseded"}]}
+    assert "merged.md" not in files_to_delete(plan)
 
 
 def test_stale_index_lines_include_entries_being_relisted(plan):

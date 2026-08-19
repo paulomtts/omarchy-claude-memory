@@ -107,6 +107,15 @@ TestCase {
     verify(Logic.validateConsolidatePlan(plan, currentFiles()).indexOf("not in the current index") >= 0)
   }
 
+  function test_tolerates_an_entry_naming_its_own_new_target_as_a_source() {
+    // merged.md doesn't exist yet -- mentioning it isn't inventing an *old*
+    // file, it's the model confusing its own new filename for one of the
+    // notes it's about.
+    var plan = validPlan()
+    plan.entries = [entry("merged.md", ["a.md", "b.md", "merged.md"])]
+    compare(Logic.validateConsolidatePlan(plan, currentFiles()), "")
+  }
+
   function test_rejects_a_file_accounted_for_twice() {
     var plan = validPlan()
     plan.unchanged = ["keep.md", "a.md"]

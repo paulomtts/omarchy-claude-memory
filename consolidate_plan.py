@@ -129,7 +129,15 @@ def _check_accounting(plan, current):
     missing = current - set(accounted)
     if missing:
         return "plan doesn't account for: " + ", ".join(sorted(missing))
-    extra = set(accounted) - current
+    # A name the model invented for one of its own new entries sometimes
+    # also turns up in that same entry's sources or in unchanged -- e.g. it
+    # names a merge target, then mentions that same name again while
+    # explaining what it's about. Harmless self-reference to a file that
+    # doesn't exist yet, not an invented *old* file, so it doesn't count as
+    # "extra". files_to_delete() separately guarantees a fresh entry target
+    # is never deleted even if this same confusion puts it in discard.
+    new_targets = set(_field(entry, "file") for entry in _entries(plan))
+    extra = set(accounted) - current - new_targets
     if extra:
         return "plan references files that aren't in the current index: " + ", ".join(sorted(extra))
 
@@ -187,7 +195,14 @@ def superseded_sources(plan):
 
 
 def files_to_delete(plan):
-    return superseded_sources(plan) | set(_field(item, "file") for item in _discard(plan))
+    """Every entry's own target is excluded unconditionally, even if the
+    same name also turns up in discard -- apply_plan() writes entries
+    before deleting this set, so without this a plan that confusedly
+    discards the file it just created would delete its own fresh output
+    in the same run."""
+    written = set(_field(entry, "file") for entry in _entries(plan))
+    to_delete = superseded_sources(plan) | set(_field(item, "file") for item in _discard(plan))
+    return to_delete - written
 
 
 def stale_index_files(plan, current_files):
