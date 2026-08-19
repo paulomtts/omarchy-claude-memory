@@ -250,16 +250,35 @@ Panel {
     }
   }
 
-  // Re-checks the same invariant consolidate-apply.py enforces before
-  // writing anything: every currently-indexed file must appear in exactly
-  // one of unchanged / some entry's sources / discard. Returns "" if the
-  // plan is safe to show for review, or an error string.
+  // Re-checks the same invariants consolidate-apply.py enforces before
+  // writing anything, in the same order: no two entries targeting the same
+  // file, every currently-indexed file accounted for in exactly one of
+  // unchanged / some entry's sources / discard, and no entry silently
+  // overwriting an existing file it doesn't list among its own sources.
+  // Item accessors are defensive (entry/item may not be an object -- e.g.
+  // stray `null` in a malformed array) so a garbled plan produces a clean
+  // error string here instead of an uncaught throw that would strand
+  // consolidateState at "running" forever. Returns "" if the plan is safe
+  // to show for review, or an error string.
   function validateConsolidatePlan(plan) {
     if (!plan || typeof plan !== "object") return "Claude's response wasn't a JSON object."
     var unchanged = Array.isArray(plan.unchanged) ? plan.unchanged : null
     var entries = Array.isArray(plan.entries) ? plan.entries : null
     var discard = Array.isArray(plan.discard) ? plan.discard : null
     if (!unchanged || !entries || !discard) return "Claude's response was missing unchanged/entries/discard."
+
+    function entryFile(entry) { return (entry && typeof entry === "object" && entry.file) ? String(entry.file) : "" }
+    function entrySources(entry) { return (entry && typeof entry === "object" && Array.isArray(entry.sources)) ? entry.sources : [] }
+    function discardFile(item) { return (item && typeof item === "object" && item.file) ? String(item.file) : "" }
+
+    var seenTargets = {}
+    var dupTarget = ""
+    entries.map(entryFile).forEach(function(f) {
+      if (dupTarget !== "" || f === "") return
+      if (seenTargets[f]) { dupTarget = f; return }
+      seenTargets[f] = true
+    })
+    if (dupTarget !== "") return "Two entries target the same file: " + dupTarget
 
     var accounted = {}
     var conflict = ""
@@ -270,9 +289,9 @@ Panel {
     }
     unchanged.forEach(function(name) { account(name, "unchanged") })
     entries.forEach(function(entry) {
-      (entry.sources || []).forEach(function(source) { account(source, "entries[].sources") })
+      entrySources(entry).forEach(function(source) { account(source, "entries[].sources") })
     })
-    discard.forEach(function(item) { account(item.file, "discard") })
+    discard.forEach(function(item) { account(discardFile(item), "discard") })
     if (conflict !== "") return conflict
 
     var current = root.indexEntries.map(function(e) { return e.file })
@@ -280,6 +299,15 @@ Panel {
     var extra = Object.keys(accounted).filter(function(f) { return current.indexOf(f) < 0 })
     if (missing.length > 0) return "Plan doesn't account for: " + missing.join(", ")
     if (extra.length > 0) return "Plan references files not in the current index: " + extra.join(", ")
+
+    var selfOverwrite = ""
+    entries.forEach(function(entry) {
+      if (selfOverwrite !== "") return
+      var target = entryFile(entry)
+      if (current.indexOf(target) >= 0 && entrySources(entry).indexOf(target) < 0) selfOverwrite = target
+    })
+    if (selfOverwrite !== "") return "Entry targets existing file " + selfOverwrite + " without listing it as a source."
+
     return ""
   }
 
