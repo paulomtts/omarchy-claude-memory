@@ -1,0 +1,27 @@
+{
+  "schemaVersion": 1,
+  "id": "paulomtts.claude-memory",
+  "name": "Claude Memory",
+  "version": "1.0.0",
+  "author": "paulomtts",
+  "license": "MIT",
+  "description": "Browse Claude Code's persistent memory (MEMORY.md and linked notes) per project, right from the bar.",
+  "kinds": ["bar-widget"],
+  "activation": "on-demand",
+  "entryPoints": {
+    "barWidget": "Panel.qml"
+  },
+  "barWidget": {
+    "displayName": "Claude Memory",
+    "description": "One bar icon and one panel: pick a project, browse its memory index, and read any linked memory note.",
+    "category": "AI",
+    "aliases": ["claude-memory", "memory"],
+    "allowMultiple": false,
+    "defaults": {
+      "projectsRoot": ""
+    },
+    "schema": [
+      { "key": "projectsRoot", "type": "path", "label": "Projects root", "defaultValue": "", "description": "Defaults to ~/.claude/projects. Override only if Claude Code stores its projects elsewhere." }
+    ]
+  }
+}
