@@ -227,6 +227,16 @@ TestCase {
     compare(plan.discard[0].file, "junk.md")
   }
 
+  // An entry writing *to* MEMORY.md is not noise to sanitize away -- it's a
+  // plan trying to overwrite the index with note content, so it's rejected
+  // outright rather than tolerated like a stray mention in sources.
+  function test_an_entry_targeting_the_index_itself_is_rejected() {
+    var plan = validPlan()
+    plan.entries[0].file = "MEMORY.md"
+    compare(Logic.validateConsolidatePlan(plan, currentFiles()),
+      "Entry targets the index file itself: MEMORY.md")
+  }
+
   // Left in sources, MEMORY.md would be deleted as "superseded" by the
   // apply step -- so a plan mentioning it must still validate afterwards.
   function test_a_plan_mentioning_the_index_validates_once_sanitized() {

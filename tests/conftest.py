@@ -39,6 +39,10 @@ def run_script():
         env = dict(os.environ, HOME=str(home)) if home else None
         proc = subprocess.run([sys.executable, os.path.join(PLUGIN_DIR, script), *args],
                               input=stdin, capture_output=True, text=True, env=env)
-        lines = [line.split("\t") for line in proc.stdout.strip().split("\n") if line]
+        # rstrip("\n") only -- a trailing tab-separated empty field (e.g. an
+        # unresolved verified-source-dir column) is real content on the last
+        # line, and plain .strip() would eat it along with the newline since
+        # a tab counts as whitespace too.
+        lines = [line.split("\t") for line in proc.stdout.rstrip("\n").split("\n") if line.strip()]
         return proc.returncode, lines
     return run

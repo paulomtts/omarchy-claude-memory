@@ -11,7 +11,9 @@ INDEX = "- [Note](note.md) — a note\n"
 @pytest.fixture
 def projects_root(tmp_path):
     """Two projects with memory, one without -- plus a real directory tree
-    for one of them so its slug resolves to a verified path."""
+    for one of them so its slug's label decodes to a real-looking path (the
+    display guess, not the verified source dir -- no session transcript is
+    written here, so that field stays empty for both)."""
     (tmp_path / "Code" / "my-app").mkdir(parents=True)
     root = tmp_path / "projects"
     for slug in ("-" + str(tmp_path / "Code" / "my-app").lstrip("/").replace("/", "-"), "-gone-project"):
@@ -32,6 +34,29 @@ def test_lists_only_projects_that_have_a_memory_index(run_script, projects_root)
     assert str(tmp_path / "Code" / "my-app") in labels
     assert "/gone/project" in labels
     assert all(line[0].endswith("/memory") for line in lines)
+    # No project here has a session transcript, so nothing is verified --
+    # the label alone is never enough to grant a directory to Claude.
+    assert all(line[2] == "" for line in lines)
+
+
+def test_the_verified_source_dir_comes_from_a_session_transcript_not_the_slug(run_script, tmp_path):
+    # Deliberately ambiguous: the slug's greedy decode would guess wrong
+    # (chat/go instead of chat-go), but the transcript's cwd is authoritative
+    # regardless of what the label guesses.
+    (tmp_path / "Code" / "chat").mkdir(parents=True)
+    (tmp_path / "Code" / "chat-go").mkdir(parents=True)
+    root = tmp_path / "projects"
+    slug = "-" + str(tmp_path / "Code" / "chat-go").lstrip("/").replace("/", "-")
+    project_dir = root / slug
+    (project_dir / "memory").mkdir(parents=True)
+    (project_dir / "memory" / "MEMORY.md").write_text(INDEX)
+    (project_dir / "session.jsonl").write_text(
+        json.dumps({"cwd": str(tmp_path / "Code" / "chat-go")}) + "\n", encoding="utf-8")
+
+    _, lines = run_script("resolve-projects.py", str(root))
+    line = next(l for l in lines if l[0] == str(project_dir / "memory"))
+    assert line[1] == str(tmp_path / "Code" / "chat" / "go")  # the guess, still wrong
+    assert line[2] == str(tmp_path / "Code" / "chat-go")  # the verified one, right
 
 
 def test_a_projects_root_that_isnt_there_lists_nothing(run_script, tmp_path):

@@ -5,6 +5,7 @@ Validation itself is covered file-by-file in test_plan_validation.py; the
 scenarios here are about the mutation on the other side of it.
 """
 import json
+import os
 
 INDEX = """# Project Memory
 
@@ -123,6 +124,35 @@ def test_malformed_json_is_reported_as_a_result_line(write_memory, run_script, t
     assert code == 1
     assert lines[0][0] == "error" and lines[0][2].startswith("invalid plan JSON:")
     assert (memory / "MEMORY.md").read_text() == INDEX
+
+
+def test_a_note_thats_actually_a_symlink_is_never_written_through(write_memory, run_script, tmp_path):
+    # is_safe_filename() only rules out path components in the *name* --
+    # nothing stops a name that passes it from already existing on disk as
+    # a symlink pointing outside the memory dir. Rewriting "keep.md" in
+    # place must refuse to follow it rather than silently write the entry's
+    # content wherever the link points.
+    memory = write_memory(INDEX, NOTES)
+    outside = tmp_path / "outside.txt"
+    outside.write_text("untouched")
+    (memory / "keep.md").unlink()
+    os.symlink(str(outside), str(memory / "keep.md"))
+
+    plan = {
+        "unchanged": ["feed.md", "feed_notes.md"],
+        "entries": [{
+            "file": "keep.md", "title": "Keep", "description": "still useful",
+            "type": "note", "body": "keep body", "sources": ["keep.md"],
+        }],
+        "discard": [{"file": "junk.md", "reason": "stale"}],
+    }
+
+    code, lines = apply(run_script, memory, plan, tmp_path)
+
+    assert outside.read_text() == "untouched"
+    keep_result = next(line for line in lines if line[1] == "keep.md")
+    assert keep_result[0] == "error"
+    assert os.path.islink(memory / "keep.md")
 
 
 def test_it_refuses_a_directory_that_isnt_a_memory_dir(run_script, tmp_path):

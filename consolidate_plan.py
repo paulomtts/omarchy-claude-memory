@@ -65,13 +65,24 @@ def _check_shape(plan):
 def _check_filenames(plan):
     """Nothing in a plan may name anything but a plain file in the memory
     dir -- checked before any other field, so a traversal attempt is
-    rejected even if the rest of the entry is garbage."""
+    rejected even if the rest of the entry is garbage.
+
+    An entry's own file is checked against MEMORY_INDEX too: sanitize_plan()
+    strips the index out of unchanged/sources/discard, where it's just
+    noise, but an entry writing *to* MEMORY.md is different -- that's a
+    plan trying to overwrite the index itself with note content, which
+    apply_plan()'s write-then-rewrite-index order would silently turn into
+    losing that entry's content instead of the index (rewrite_index() runs
+    last and clobbers it back). Reject it outright rather than guess."""
     for name in _unchanged(plan):
         if not is_safe_filename(name):
             return "unsafe filename in unchanged: " + str(name)
     for entry in _entries(plan):
-        if not is_safe_filename(_field(entry, "file")):
-            return "unsafe filename in entries: " + str(_field(entry, "file"))
+        target = _field(entry, "file")
+        if not is_safe_filename(target):
+            return "unsafe filename in entries: " + str(target)
+        if target == MEMORY_INDEX:
+            return "entry targets the index file itself: " + MEMORY_INDEX
         for source in _sources(entry):
             if not is_safe_filename(source):
                 return "unsafe source filename: " + str(source)

@@ -144,12 +144,17 @@ function isSingleLineString(value) {
   return typeof value === "string" && value.indexOf("\n") < 0
 }
 
+// An entry's own file is checked against INDEX_FILE too: sanitizeConsolidatePlan()
+// strips the index out of unchanged/sources/discard, where it's just noise,
+// but an entry writing *to* MEMORY.md is different -- that's a plan trying
+// to overwrite the index itself with note content. Reject it outright.
 function checkFilenames(unchanged, entries, discard) {
   for (var u = 0; u < unchanged.length; u++)
     if (!safeName(String(unchanged[u]))) return "Unsafe filename in unchanged: " + unchanged[u]
   for (var e = 0; e < entries.length; e++) {
     var ef = entryFile(entries[e])
     if (!safeName(ef)) return "Unsafe filename in entries: " + ef
+    if (ef === INDEX_FILE) return "Entry targets the index file itself: " + INDEX_FILE
     var sources = entrySources(entries[e])
     for (var s = 0; s < sources.length; s++)
       if (!safeName(String(sources[s]))) return "Unsafe source filename: " + sources[s]

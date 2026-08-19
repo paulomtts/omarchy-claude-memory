@@ -10,6 +10,8 @@ live here once instead.
 Nothing in this module touches global state or prints; the scripts that
 import it own all the I/O and all the result reporting.
 """
+import glob
+import json
 import os
 import re
 
@@ -84,6 +86,36 @@ def write_index(memory_dir, text):
         f.write(text)
 
 
+def verified_source_dir(project_dir):
+    """The project's real source path, straight from a session transcript
+    rather than guessed from the slug.
+
+    decode_slug() below is a best-effort guess: the slug encoding collapses
+    "/" and a literal "-" into the same character, so two different real
+    directories (say ~/Code/foo/bar and ~/Code/foo-bar) can decode to the
+    same slug, and the greedy matcher has no way to tell which one Claude
+    Code actually meant. That's fine for a display label, but this feature
+    also uses the resolved path to grant Claude read access to it via
+    --add-dir -- a wrong-but-real guess there would expose a directory the
+    user never intended to share. Every session transcript records the
+    literal cwd it started from, so read that instead of decoding anything.
+    Returns "" if no transcript is found or it doesn't resolve to a real
+    directory."""
+    for path in glob.glob(os.path.join(project_dir, "*.jsonl")):
+        try:
+            with open(path, "r", encoding="utf-8") as f:
+                for line in f:
+                    try:
+                        cwd = json.loads(line).get("cwd")
+                    except ValueError:
+                        continue
+                    if isinstance(cwd, str) and os.path.isdir(cwd):
+                        return cwd
+        except OSError:
+            continue
+    return ""
+
+
 def decode_slug(slug, isdir=os.path.isdir):
     """Reconstruct a project's real path from the slug Claude Code names its
     project directory with.
@@ -105,6 +137,10 @@ def decode_slug(slug, isdir=os.path.isdir):
 
     `isdir` is injected so the greedy matcher can be exercised against a
     known directory set instead of whatever happens to be on this machine.
+
+    A guess, not a fact: the encoding is lossy, so this can land on a real
+    but wrong directory. Fine for a display label; never use it to grant
+    filesystem access -- verified_source_dir() is the one for that.
     """
     if not slug.startswith("-"):
         return None

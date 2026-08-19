@@ -2,10 +2,12 @@
 is allowed to touch. Every filename these scripts act on -- from argv, from
 an index line, from a model-written plan -- comes through here first.
 """
+import json
+
 import pytest
 
 from claude_memory import (drop_index_lines, index_link, index_targets, is_memory_dir,
-                           is_safe_filename, normalize_href)
+                           is_safe_filename, normalize_href, verified_source_dir)
 
 INDEX = """# Project Memory
 
@@ -88,3 +90,41 @@ def test_a_dot_slash_link_is_dropped_by_its_bare_name():
 
 def test_dropping_nothing_changes_nothing():
     assert drop_index_lines(INDEX, set()) == INDEX
+
+
+# ---- verified_source_dir: the authoritative alternative to decode_slug's
+# guess, used wherever a real directory is granted to Claude -------------
+
+def write_transcript(project_dir, name, cwd):
+    project_dir.mkdir(parents=True, exist_ok=True)
+    (project_dir / name).write_text(json.dumps({"cwd": cwd}) + "\n", encoding="utf-8")
+
+
+def test_reads_cwd_from_a_session_transcript(tmp_path):
+    real = tmp_path / "Code" / "my-app"
+    real.mkdir(parents=True)
+    project_dir = tmp_path / "projects" / "-some-slug"
+    write_transcript(project_dir, "session.jsonl", str(real))
+    assert verified_source_dir(str(project_dir)) == str(real)
+
+
+def test_a_cwd_that_no_longer_exists_is_not_verified(tmp_path):
+    project_dir = tmp_path / "projects" / "-some-slug"
+    write_transcript(project_dir, "session.jsonl", str(tmp_path / "gone"))
+    assert verified_source_dir(str(project_dir)) == ""
+
+
+def test_no_transcript_at_all_is_not_verified(tmp_path):
+    project_dir = tmp_path / "projects" / "-some-slug"
+    project_dir.mkdir(parents=True)
+    assert verified_source_dir(str(project_dir)) == ""
+
+
+def test_a_transcript_with_garbled_json_is_skipped_not_raised(tmp_path):
+    real = tmp_path / "Code" / "my-app"
+    real.mkdir(parents=True)
+    project_dir = tmp_path / "projects" / "-some-slug"
+    project_dir.mkdir(parents=True)
+    (project_dir / "broken.jsonl").write_text("not json\n", encoding="utf-8")
+    (project_dir / "session.jsonl").write_text(json.dumps({"cwd": str(real)}) + "\n", encoding="utf-8")
+    assert verified_source_dir(str(project_dir)) == str(real)

@@ -197,6 +197,17 @@ def test_the_index_is_stripped_from_every_bucket():
     assert plan["discard"] == [{"file": "junk.md", "reason": "y"}]
 
 
+def test_an_entry_targeting_the_index_itself_is_rejected(plan):
+    # sanitize_plan() strips MEMORY.md out of unchanged/sources/discard as
+    # harmless noise, but an entry *writing to* MEMORY.md is a plan trying
+    # to overwrite the index with note content -- apply_plan()'s order
+    # (write entries, then rewrite the index last) would silently discard
+    # that entry's content instead of protecting the index, so this has to
+    # be rejected outright rather than sanitized away.
+    clobber = mutate(plan, entries=[entry("MEMORY.md", ["a.md", "b.md"])])
+    assert validate_plan(clobber, CURRENT) == "entry targets the index file itself: MEMORY.md"
+
+
 def test_a_plan_mentioning_the_index_still_validates(plan):
     # Left in sources it would be deleted as superseded, taking the index
     # with it; rejected outright it would fail a plan that's otherwise fine.

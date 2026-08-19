@@ -52,7 +52,17 @@ def backup(memory_dir):
 
 
 def write_entry(memory_dir, entry):
-    with open(os.path.join(memory_dir, entry["file"]), "w", encoding="utf-8") as f:
+    """Writes are opened with O_NOFOLLOW: a plan names a bare filename, which
+    is confirmed safe by is_safe_filename() to have no path components --
+    but nothing stops that name from already existing on disk as a symlink,
+    planted or synced in from somewhere else. Following it would write the
+    entry's content to wherever the link points, outside the memory dir
+    entirely. Refusing to follow it is race-free (the kernel checks the
+    final path component atomically), unlike checking os.path.islink()
+    first and opening second."""
+    path = os.path.join(memory_dir, entry["file"])
+    flags = os.O_WRONLY | os.O_CREAT | os.O_TRUNC | os.O_NOFOLLOW
+    with os.fdopen(os.open(path, flags, 0o644), "w", encoding="utf-8") as f:
         f.write(entry_document(entry))
 
 

@@ -32,6 +32,11 @@ Panel {
   property var indexEntries: []        // [{ title, file, hook }]
   property string selectedDir: ""
   property string selectedProjectLabel: ""
+  // Only ever set from resolve-projects.py's verified third field (a
+  // session transcript's own cwd), never from the label -- the label is a
+  // best-effort guess that can land on a real but wrong directory, and this
+  // one is what gets granted to Claude via --add-dir.
+  property string selectedProjectSourceDir: ""
   property string selectedFilePath: ""
   property string entryTitle: ""
   property string entryType: ""
@@ -149,7 +154,7 @@ Panel {
       root.toggleSelected(root.viewMode === "projects" ? item.dir : item.file)
       return
     }
-    if (root.viewMode === "projects") root.selectProject(item.dir, item.label)
+    if (root.viewMode === "projects") root.selectProject(item.dir, item.label, item.sourceDir)
     else if (root.viewMode === "index") root.selectEntry(item)
   }
 
@@ -240,7 +245,7 @@ Panel {
     root.consolidateStartMs = Date.now()
     root.consolidateNowMs = root.consolidateStartMs
     root.consolidateState = "running"
-    var sourceDir = root.selectedProjectLabel.charAt(0) === "/" ? root.selectedProjectLabel : ""
+    var sourceDir = root.selectedProjectSourceDir
     consolidateProc.workingDirectory = root.selectedDir
     consolidateProc.command = ["python3", root.pluginDir + "consolidate-run.py", root.selectedDir, sourceDir]
     consolidateProc.running = true
@@ -393,9 +398,10 @@ Panel {
     focusForView()
   }
 
-  function selectProject(dir, label) {
+  function selectProject(dir, label, sourceDir) {
     selectedDir = dir
     selectedProjectLabel = label
+    selectedProjectSourceDir = sourceDir || ""
     selectedFilePath = ""
     indexEntries = []
     loadError = ""
@@ -475,8 +481,10 @@ Panel {
       onStreamFinished: {
         var lines = String(text || "").split("\n").filter(function(l) { return l.trim() !== "" })
         root.projects = lines.map(function(line) {
-          var tab = line.indexOf("\t")
-          return tab >= 0 ? { dir: line.slice(0, tab), label: line.slice(tab + 1) } : { dir: line, label: line }
+          var parts = line.split("\t")
+          return parts.length >= 3
+            ? { dir: parts[0], label: parts[1], sourceDir: parts[2] }
+            : { dir: parts[0], label: parts.length >= 2 ? parts[1] : parts[0], sourceDir: "" }
         }).sort(function(a, b) { return a.label.localeCompare(b.label) })
       }
     }
@@ -953,7 +961,7 @@ Panel {
                 manageMode: root.manageMode
                 selected: root.isSelected(modelData.dir)
                 onActivated: root.manageMode ? root.toggleSelected(modelData.dir)
-                  : root.selectProject(modelData.dir, modelData.label)
+                  : root.selectProject(modelData.dir, modelData.label, modelData.sourceDir)
               }
             }
           }
