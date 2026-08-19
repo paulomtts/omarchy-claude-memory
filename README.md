@@ -59,6 +59,23 @@ omarchy-shell shell rescanPlugins
 omarchy plugin enable paulomtts.claude-memory
 ```
 
+## Uninstall
+
+```bash
+omarchy plugin remove paulomtts.claude-memory --yes
+```
+
+Or by hand:
+
+```bash
+omarchy plugin disable paulomtts.claude-memory
+rm -rf ~/.config/omarchy/plugins/paulomtts.claude-memory
+```
+
+Consolidate's pre-apply backups live outside the plugin directory, at
+`~/.cache/omarchy-claude-memory/backups/`, and aren't touched by either
+removal path — delete that folder too for a full cleanup.
+
 ## Keybinding (optional)
 
 Add to `~/.config/hypr/bindings.lua`:
