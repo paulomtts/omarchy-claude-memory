@@ -25,6 +25,17 @@ open any linked note.
   Escape closes the panel at the top level; Tab switches to the next bar
   panel. The search box has focus by default, so typing works immediately,
   and editing mid-query still moves the caret normally with Left/Right.
+- **Consolidate** — inside a project's memory index, a "✨ Consolidate"
+  button asks Claude Code to review every note (plus, when the project's
+  source directory can still be resolved, the actual source project — so
+  it can check a note's claims against the current code) and propose a
+  merged/pruned set. Nothing is written until you review the full
+  proposal — new/merged content, discarded notes with reasons, and what's
+  left unchanged — and type `apply` to confirm. A backup of the memory
+  directory is kept before applying. This runs `claude -p` with read-only
+  tool access (`Read`/`Glob`/`Grep` only, `--permission-mode plan`, and a
+  `--json-schema`-enforced response) and counts against your normal
+  Claude subscription usage.
 - **Manage mode** — select projects or memory entries and delete them,
   gated behind typing the word `delete` to confirm. Deleting a project only
   removes its `memory/` directory (not its Claude Code conversation
@@ -65,7 +76,8 @@ o.bind("CTRL + SUPER + M", "Toggle Claude Memory", "omarchy-shell shell toggle p
 ## Requirements
 
 `python3` on `PATH` (used for filesystem-aware slug decoding and for
-manage-mode deletion).
+manage-mode deletion). The `claude` CLI on `PATH`, logged in, is required
+only for the Consolidate feature — everything else works without it.
 
 ## License
 
