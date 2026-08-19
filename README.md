@@ -19,10 +19,12 @@ open any linked note.
 - **Entry view** — opens a linked note, showing its frontmatter (`name`,
   `description`, `type`) and body.
 - **Search** — type to filter projects or memory entries live.
-- **Full keyboard navigation** — arrow keys move the cursor, Enter opens,
-  Escape backs out (or closes at the top level), Tab switches to the next
-  bar panel. The search box has focus by default, so typing works
-  immediately.
+- **Full keyboard navigation** — Up/Down move the cursor; Enter, or Right
+  once the caret is at the end of the search text, opens the highlighted
+  item; Left at the start of the search text (or Escape) backs out, and
+  Escape closes the panel at the top level; Tab switches to the next bar
+  panel. The search box has focus by default, so typing works immediately,
+  and editing mid-query still moves the caret normally with Left/Right.
 - **Manage mode** — select projects or memory entries and delete them,
   gated behind typing the word `delete` to confirm. Deleting a project only
   removes its `memory/` directory (not its Claude Code conversation

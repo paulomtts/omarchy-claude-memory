@@ -512,6 +512,16 @@ Panel {
               if (event.key === Qt.Key_Return || event.key === Qt.Key_Enter) {
                 root.activateCursor(); event.accepted = true; return
               }
+              // Left/Right double as back/forward navigation, but only once
+              // the text caret is already at that edge of the query -- so
+              // editing mid-string still moves the caret normally, and the
+              // shortcut only fires once there's nowhere left for it to go.
+              if (event.key === Qt.Key_Left && searchField.cursorPosition === 0) {
+                root.goBack(); event.accepted = true; return
+              }
+              if (event.key === Qt.Key_Right && searchField.cursorPosition === searchField.text.length) {
+                root.activateCursor(); event.accepted = true; return
+              }
               if (event.key === Qt.Key_Tab || event.key === Qt.Key_Backtab) {
                 root.switchPanel((event.modifiers & Qt.ShiftModifier) || event.key === Qt.Key_Backtab ? -1 : 1)
                 event.accepted = true
