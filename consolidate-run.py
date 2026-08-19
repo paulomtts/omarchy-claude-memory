@@ -137,7 +137,7 @@ def build_argv(source_dir):
         argv += ["--add-dir", source_dir]
     argv += [
         "--json-schema", json.dumps(SCHEMA),
-        "--max-budget-usd", "1.00",
+        "--max-budget-usd", "3.00",
         instructions,
     ]
     return argv

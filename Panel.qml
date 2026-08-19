@@ -669,18 +669,31 @@ Panel {
 
   Process {
     id: consolidateProc
+    property string stderrText: ""
     stdout: SplitParser {
       onRead: function(line) { root.handleConsolidateLine(line) }
     }
-    stderr: StdioCollector { waitForEnd: true }
+    stderr: StdioCollector {
+      waitForEnd: true
+      onStreamFinished: consolidateProc.stderrText = String(text || "").trim()
+    }
     onExited: function(exitCode) {
-      if (root.consolidateState !== "running") return
-      // A clean stream always ends with a "result" line that
-      // handleConsolidateLine() already turned into "review" or "error" --
-      // reaching here while still "running" means the process died
-      // without ever emitting one (crash, killed, claude not on PATH).
-      root.consolidateError = "Claude Code exited unexpectedly" + (exitCode !== 0 ? " (exit code " + exitCode + ")." : ".")
-      root.consolidateState = "error"
+      // Fires strictly after the child has exited, so stderr's
+      // onStreamFinished above is already done -- this is the one place
+      // both the stdout-driven result (if any) and stderr are both known,
+      // so it's the one place that builds the final message rather than
+      // risking a race by appending stderr from the stdout-result path.
+      if (root.consolidateState !== "running" && root.consolidateState !== "error") return
+      if (root.consolidateState === "running") {
+        // A clean stream always ends with a "result" line that
+        // handleConsolidateLine() already turned into "review" or "error" --
+        // reaching here while still "running" means the process died
+        // without ever emitting one (crash, killed, claude not on PATH).
+        root.consolidateError = "Claude Code exited unexpectedly" + (exitCode !== 0 ? " (exit code " + exitCode + ")" : "") + "."
+        root.consolidateState = "error"
+      }
+      if (consolidateProc.stderrText !== "" && root.consolidateError.indexOf(consolidateProc.stderrText) < 0)
+        root.consolidateError = root.consolidateError + "\n\n" + consolidateProc.stderrText
     }
   }
 
